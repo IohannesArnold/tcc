@@ -15,6 +15,9 @@
 
 #define TOK_HASH_SIZE       2048 /* must be a power of two */
 #define TOK_ALLOC_INCR      512  /* must be a power of two */
+#define TOK_STR_ALLOC_INCR_BITS 6
+#define TOK_STR_ALLOC_INCR (1 << TOK_STR_ALLOC_INCR_BITS)
+#define TOK_MAX_SIZE        4 /* token max size in int unit when stored in string */
 
 /* token symbol management */
 typedef struct TokenSym {
@@ -175,6 +178,7 @@ typedef struct ParseState {
 typedef struct TokenString {
     int *str;
     int len;
+    int allocated_len;
     int last_line_num;
 } TokenString;
 
