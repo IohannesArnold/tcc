@@ -311,12 +311,16 @@ typedef struct TCCState {
     /* if true, only link in referenced objects from archive */
     int alacarte_link;
 
+    /* C language options */
+    int char_is_unsigned;
+
     /* warning switches */
     int warn_write_strings;
     int warn_unsupported;
     int warn_error;
 
     int warn_none;
+    int warn_implicit_function_declaration;
 
     /* error handling */
     void *error_opaque;
