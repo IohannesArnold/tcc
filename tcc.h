@@ -15,12 +15,14 @@
 
 #define TOK_HASH_SIZE       2048 /* must be a power of two */
 #define TOK_ALLOC_INCR      512  /* must be a power of two */
-#define SYM_HASH_SIZE       1031
 
 /* token symbol management */
 typedef struct TokenSym {
     struct TokenSym *hash_next;
     struct Sym *sym_define; /* direct pointer to define */
+    struct Sym *sym_label; /* direct pointer to label */
+    struct Sym *sym_struct; /* direct pointer to structure */
+    struct Sym *sym_identifier; /* direct pointer to identifier */
     int tok; /* token number */
     int len;
     char str[1];
@@ -73,13 +75,8 @@ typedef struct Sym {
     CType type;    /* associated type */
     struct Sym *next; /* next related symbol */
     struct Sym *prev; /* prev symbol in stack */
-    struct Sym *hash_next; /* next symbol in hash table */
+    struct Sym *prev_tok; /* previous symbol for this token */
 } Sym;
-
-typedef struct SymStack {
-  struct Sym *top;
-  struct Sym *hash[SYM_HASH_SIZE];
-} SymStack;
 
 /* section definition */
 /* XXX: use directly ELF structure for parameters ? */
@@ -233,8 +230,9 @@ TokenSym **table_ident;
 TokenSym *hash_ident[TOK_HASH_SIZE];
 char token_buf[STRING_MAX_SIZE + 1];
 char *funcname;
-SymStack global_stack, local_stack, label_stack;
+Sym *global_stack, *local_stack;
 Sym *define_stack;
+Sym *label_stack;
 
 SValue vstack[VSTACK_SIZE], *vtop;
 int *macro_ptr, *macro_ptr_allocated;
@@ -447,18 +445,11 @@ int get_reg(int rc);
 int save_reg_forced(int r);
 void gen_op(int op);
 void force_charshort_cast(int t);
-static void gen_cast(CType *type);
 void vstore(void);
-Sym *sym_find(int v);
 Sym *sym_push(int v, CType *type, int r, int c);
 
 /* type handling */
 int type_size(CType *type, int *a);
-static inline CType *pointed_type(CType *type);
-static int pointed_size(CType *type);
-static int is_compatible_types(CType *type1, CType *type2);
-static int parse_btype(CType *type, AttributeDef *ad);
-static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
 
 void error(const char *fmt, ...);
 void vpushi(int v);

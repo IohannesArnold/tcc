@@ -141,8 +141,16 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
                                    int has_init, int v, int scope);
 static void macro_subst(TokenString *tok_str, 
                         Sym **nested_list, int *macro_str);
+static void gen_cast(CType *type);
+static Sym *sym_find(int v);
 
+/* type handling */
+static inline CType *pointed_type(CType *type);
+static int pointed_size(CType *type);
 static int lvalue_type(int t);
+static int is_compatible_types(CType *type1, CType *type2);
+static int parse_btype(CType *type, AttributeDef *ad);
+static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
 
 static int tcc_add_file_internal(TCCState *s, const char *filename, int flags);
 
@@ -611,6 +619,9 @@ TokenSym *tok_alloc(const char *str, int len)
     table_ident[i] = ts;
     ts->tok = tok_ident++;
     ts->sym_define = NULL;
+    ts->sym_label = NULL;
+    ts->sym_struct = NULL;
+    ts->sym_identifier = NULL;
     ts->len = len;
     ts->hash_next = NULL;
     memcpy(ts->str, str, len + 1);
@@ -806,7 +817,7 @@ char *get_tok_str(int v, CValue *cv)
 }
 
 /* push, without hashing */
-Sym *sym_push2(Sym **ps, int v, int t, int c)
+static Sym *sym_push2(Sym **ps, int v, int t, int c)
 {
     Sym *s;
     s = tcc_malloc(sizeof(Sym));
@@ -822,7 +833,7 @@ Sym *sym_push2(Sym **ps, int v, int t, int c)
 
 /* find a symbol and return its associated structure. 's' is the top
    of the symbol stack */
-Sym *sym_find2(Sym *s, int v)
+static Sym *sym_find2(Sym *s, int v)
 {
     while (s) {
         if (s->v == v)
@@ -832,75 +843,95 @@ Sym *sym_find2(Sym *s, int v)
     return NULL;
 }
 
-#define HASH_SYM(v) ((unsigned)(v) % SYM_HASH_SIZE)
-
-/* find a symbol and return its associated structure. 'st' is the
-   symbol stack */
-Sym *sym_find1(SymStack *st, int v)
+/* structure lookup */
+static Sym *struct_find(int v)
 {
-    Sym *s;
-
-    s = st->hash[HASH_SYM(v)];
-    while (s) {
-        if (s->v == v)
-            return s;
-        s = s->hash_next;
-    }
-    return NULL;
+    v -= TOK_IDENT;
+    if ((unsigned)v >= (unsigned)(tok_ident - TOK_IDENT))
+        return NULL;
+    return table_ident[v]->sym_struct;
 }
 
-Sym *sym_push1(SymStack *st, int v, int t, int c)
+/* find an identifier */
+static inline Sym *sym_find(int v)
 {
-    Sym *s, **ps;
-    s = sym_push2(&st->top, v, t, c);
-    /* add in hash table */
-    if (v) {
-        ps = &st->hash[HASH_SYM(v)];
-        s->hash_next = *ps;
-        *ps = s;
-    }
-    return s;
-}
-
-/* find a symbol in the right symbol space */
-Sym *sym_find(int v)
-{
-    Sym *s;
-    s = sym_find1(&local_stack, v);
-    if (!s)
-        s = sym_find1(&global_stack, v);
-    return s;
+    v -= TOK_IDENT;
+    if ((unsigned)v >= (unsigned)(tok_ident - TOK_IDENT))
+        return NULL;
+    return table_ident[v]->sym_identifier;
 }
 
 /* push a given symbol on the symbol stack */
 Sym *sym_push(int v, CType *type, int r, int c)
 {
-    Sym *s;
-    if (local_stack.top)
-        s = sym_push1(&local_stack, v, type->t, c);
+    Sym *s, **ps;
+    TokenSym *ts;
+
+    if (local_stack)
+        ps = &local_stack;
     else
-        s = sym_push1(&global_stack, v, type->t, c);
+        ps = &global_stack;
+    s = sym_push2(ps, v, type->t, c);
     s->type.ref = type->ref;
     s->r = r;
+    /* don't record fields or anonymous symbols */
+    /* XXX: simplify */
+    if (!(v & SYM_FIELD) && (v & ~SYM_STRUCT) < SYM_FIRST_ANOM) {
+        /* record symbol in token array */
+        ts = table_ident[(v & ~SYM_STRUCT) - TOK_IDENT];
+        if (v & SYM_STRUCT)
+            ps = &ts->sym_struct;
+        else
+            ps = &ts->sym_identifier;
+        s->prev_tok = *ps;
+        *ps = s;
+    }
+    return s;
+}
+
+/* push a global identifier */
+static Sym *global_identifier_push(int v, int t, int c)
+{
+    Sym *s, **ps;
+    s = sym_push2(&global_stack, v, t, c);
+    /* don't record anonymous symbol */
+    if (v < SYM_FIRST_ANOM) {
+        ps = &table_ident[v - TOK_IDENT]->sym_identifier;
+        /* modify the top most local identifier, so that
+           sym_identifier will point to 's' when popped */
+        while (*ps != NULL)
+            ps = &(*ps)->prev_tok;
+        s->prev_tok = NULL;
+        *ps = s;
+    }
     return s;
 }
 
 /* pop symbols until top reaches 'b' */
-void sym_pop(SymStack *st, Sym *b)
+static void sym_pop(Sym **ptop, Sym *b)
 {
-    Sym *s, *ss;
+    Sym *s, *ss, **ps;
+    TokenSym *ts;
+    int v;
 
-    s = st->top;
+    s = *ptop;
     while(s != b) {
         ss = s->prev;
-        /* free hash table entry, except if symbol was freed (only
-           used for #undef symbols) */
-        if (s->v)
-            st->hash[HASH_SYM(s->v)] = s->hash_next;
+        v = s->v;
+        /* remove symbol in token array */
+        /* XXX: simplify */
+        if (!(v & SYM_FIELD) && (v & ~SYM_STRUCT) < SYM_FIRST_ANOM) {
+            ts = table_ident[(v & ~SYM_STRUCT) - TOK_IDENT];
+            if (v & SYM_STRUCT)
+                ps = &ts->sym_struct;
+            else
+                ps = &ts->sym_identifier;
+            *ps = s->prev_tok;
+        }
         tcc_free(s);
         s = ss;
     }
-    st->top = b;
+    *ptop = b;
 }
 
 /* I/O layer */
@@ -1296,6 +1327,24 @@ static void free_defines(Sym *b)
     define_stack = b;
 }
 
+/* label lookup */
+static Sym *label_find(int v)
+{
+    v -= TOK_IDENT;
+    if ((unsigned)v >= (unsigned)(tok_ident - TOK_IDENT))
+        return NULL;
+    return table_ident[v]->sym_label;
+}
+
+static Sym *label_push(int v, int flags)
+{
+    Sym *s;
+    s = sym_push2(&label_stack, v, 0, 0);
+    s->r = flags;
+    table_ident[v - TOK_IDENT]->sym_label = s;
+    return s;
+}
+
 /* eval an expression for #if/#elif */
 int expr_preprocess(void)
 {
@@ -1447,7 +1496,7 @@ enum IncludeState {
 void preprocess(void)
 {
     TCCState *s1 = tcc_state;
-    int size, i, c, n;
+    int size, i, c, n, line_num;
     enum IncludeState state;
     char buf[1024], *q, *p;
     char buf1[1024];
@@ -1463,16 +1512,19 @@ void preprocess(void)
     cinp();
     next_nomacro();
  redo:
-    if (tok == TOK_DEFINE) {
+    switch(tok) {
+    case TOK_DEFINE:
         next_nomacro();
         parse_define();
-    } else if (tok == TOK_UNDEF) {
+        break;
+    case TOK_UNDEF:
         next_nomacro();
         s = define_find(tok);
         /* undefine symbol by putting an invalid name */
         if (s)
             define_undef(s);
-    } else if (tok == TOK_INCLUDE) {
+        break;
+    case TOK_INCLUDE:
         skip_spaces();
         if (ch == '<') {
             c = '>';
@@ -1591,13 +1643,14 @@ void preprocess(void)
             state = INCLUDE_STATE_SEEK_IFNDEF;
             goto redo1;
         }
-    } else if (tok == TOK_IFNDEF) {
+        break;
+    case TOK_IFNDEF:
         c = 1;
         goto do_ifdef;
-    } else if (tok == TOK_IF) {
+    case TOK_IF:
         c = expr_preprocess();
         goto do_if;
-    } else if (tok == TOK_IFDEF) {
+    case TOK_IFDEF:
         c = 0;
     do_ifdef:
         next_nomacro();
@@ -1615,14 +1668,14 @@ void preprocess(void)
             error("memory full");
         *s1->ifdef_stack_ptr++ = c;
         goto test_skip;
-    } else if (tok == TOK_ELSE) {
+    case TOK_ELSE:
         if (s1->ifdef_stack_ptr == s1->ifdef_stack)
             error("#else without matching #if");
         if (s1->ifdef_stack_ptr[-1] & 2)
             error("#else after #else");
         c = (s1->ifdef_stack_ptr[-1] ^= 3);
         goto test_skip;
-    } else if (tok == TOK_ELIF) {
+    case TOK_ELIF:
         if (s1->ifdef_stack_ptr == s1->ifdef_stack)
             error("#elif without matching #if");
         c = s1->ifdef_stack_ptr[-1];
@@ -1640,7 +1693,8 @@ void preprocess(void)
             state = INCLUDE_STATE_NONE;
             goto redo;
         }
-    } else if (tok == TOK_ENDIF) {
+        break;
+    case TOK_ENDIF:
         if (s1->ifdef_stack_ptr <= file->ifdef_stack_ptr)
             error("#endif without matching #if");
         if (file->ifndef_macro &&
@@ -1661,8 +1715,8 @@ void preprocess(void)
             }
         }
         s1->ifdef_stack_ptr--;
-    } else if (tok == TOK_LINE) {
-        int line_num;
+        break;
+    case TOK_LINE:
         next();
         if (tok != TOK_CINT)
             error("#line");
@@ -1676,8 +1730,31 @@ void preprocess(void)
         }
         /* NOTE: we do it there to avoid problems with linefeed */
         file->line_num = line_num;
-    } else if (tok == TOK_ERROR) {
-        error("#error");
+        break;
+    case TOK_ERROR:
+    case TOK_WARNING:
+        c = tok;
+        skip_spaces();
+        q = buf;
+        while (ch != '\n' && ch != CH_EOF) {
+            if ((q - buf) < sizeof(buf) - 1)
+                *q++ = ch;
+            minp();
+        }
+        *q = '\0';
+        if (c == TOK_ERROR)
+            error("#error %s", buf);
+        else
+            warning("#warning %s", buf);
+        break;
+    default:
+        if (tok == TOK_LINEFEED || tok == '!' || tok == TOK_CINT) {
+            /* '!' is ignored to allow C scripts. numbers are ignored
+               to emulate cpp behaviour */
+        } else {
+            error("invalid preprocessing directive #%s", get_tok_str(tok, &tokc));
+        }
+        break;
     }
     /* ignore other preprocess commands or #! for C scripts */
     while (tok != TOK_LINEFEED && tok != TOK_EOF)
@@ -2056,7 +2133,7 @@ void parse_number(const char *p)
 /* return next token without macro substitution */
 static inline void next_nomacro1(void)
 {
-    int b;
+    int b, t;
     char *q;
     TokenSym *ts;
 
@@ -2080,20 +2157,44 @@ static inline void next_nomacro1(void)
             break;
         cinp();
     }
-    if (isid(ch)) {
+    switch(ch) {
+
+    case '#':
+        tok = ch;
+        cinp();
+#if 0
+        if (start_of_line) {
+            preprocess();
+            goto redo_no_start;
+        } else 
+#endif
+            {
+            if (ch == '#') {
+                cinp();
+                tok = TOK_TWOSHARPS;
+            }
+        }
+        break;
+
+    case 'a': case 'b': case 'c': case 'd':
+    case 'e': case 'f': case 'g': case 'h':
+    case 'i': case 'j': case 'k': case 'l':
+    case 'm': case 'n': case 'o': case 'p':
+    case 'q': case 'r': case 's': case 't':
+    case 'u': case 'v': case 'w': case 'x':
+    case 'y': case 'z': 
+    case 'A': case 'B': case 'C': case 'D':
+    case 'E': case 'F': case 'G': case 'H':
+    case 'I': case 'J': case 'K': 
+    case 'M': case 'N': case 'O': case 'P':
+    case 'Q': case 'R': case 'S': case 'T':
+    case 'U': case 'V': case 'W': case 'X':
+    case 'Y': case 'Z': 
+    case '_':
         q = token_buf;
         *q++ = ch;
         cinp();
-        if (q[-1] == 'L') {
-            if (ch == '\'') {
-                tok = TOK_LCHAR;
-                goto char_const;
-            }
-            if (ch == '\"') {
-                tok = TOK_LSTR;
-                goto str_const;
-            }
-        }
+    parse_ident:
         while (isid(ch) || isnum(ch)) {
             if (q >= token_buf + STRING_MAX_SIZE)
                 error("ident too long");
@@ -2103,8 +2204,25 @@ static inline void next_nomacro1(void)
         *q = '\0';
         ts = tok_alloc(token_buf, q - token_buf);
         tok = ts->tok;
-    } else if (isnum(ch)) {
-        int t;
+        break;
+    case 'L':
+        cinp();
+        if (ch == '\'') {
+            tok = TOK_LCHAR;
+            goto char_const;
+        }
+        if (ch == '\"') {
+            tok = TOK_LSTR;
+            goto str_const;
+        }
+        q = token_buf;
+        *q++ = 'L';
+        goto parse_ident;
+
+    case '0': case '1': case '2': case '3':
+    case '4': case '5': case '6': case '7':
+    case '8': case '9':
+
         cstr_reset(&tokcstr);
         /* after the first digit, accept digits, alpha, '.' or sign if
            prefixed by 'eEpP' */
@@ -2122,7 +2240,8 @@ static inline void next_nomacro1(void)
         cstr_ccat(&tokcstr, '\0');
         tokc.cstr = &tokcstr;
         tok = TOK_PPNUM;
-    } else if (ch == '.') {
+        break;
+    case '.':
         /* special dot handling because it can also start a number */
         cinp();
         if (isnum(ch)) {
@@ -2139,7 +2258,8 @@ static inline void next_nomacro1(void)
         } else {
             tok = '.';
         }
-    } else if (ch == '\'') {
+        break;
+    case '\'':
         tok = TOK_CCHAR;
     char_const:
         minp();
@@ -2151,7 +2271,8 @@ static inline void next_nomacro1(void)
         if (ch != '\'')
             expect("\'");
         minp();
-    } else if (ch == '\"') {
+        break;
+    case '\"':
         tok = TOK_STR;
     str_const:
         minp();
@@ -2171,35 +2292,177 @@ static inline void next_nomacro1(void)
             cstr_wccat(&tokcstr, '\0');
         tokc.cstr = &tokcstr;
         minp();
-    } else {
-        q = tok_two_chars;
-        /* two chars */
+        break;
+
+    case '<':
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_LE;
+        } else if (ch == '<') {
+            cinp();
+            if (ch == '=') {
+                cinp();
+                tok = TOK_A_SHL;
+            } else {
+                tok = TOK_SHL;
+            }
+        } else {
+            tok = TOK_LT;
+        }
+        break;
+        
+    case '>':
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_GE;
+        } else if (ch == '>') {
+            cinp();
+            if (ch == '=') {
+                cinp();
+                tok = TOK_A_SAR;
+            } else {
+                tok = TOK_SAR;
+            }
+        } else {
+            tok = TOK_GT;
+        }
+        break;
+        
+    case '!':
         tok = ch;
         cinp();
-        while (*q) {
-            if (*q == tok && q[1] == ch) {
-                cinp();
-                tok = q[2] & 0xff;
-                /* three chars tests */
-                if (tok == TOK_SHL || tok == TOK_SAR) {
-                    if (ch == '=') {
-                        tok = tok | 0x80;
-                        cinp();
-                    }
-                } else if (tok == TOK_DOTS) {
-                    if (ch != '.')
-                        error("parse error");
-                    cinp();
-                }
-                return;
-            }
-            q = q + 3;
+        if (ch == '=') {
+            cinp();
+            tok = TOK_NE;
         }
-        /* single char substitutions */
-        if (tok == '<')
-            tok = TOK_LT;
-        else if (tok == '>')
-            tok = TOK_GT;
+        break;
+
+    case '=':
+        tok = ch;
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_EQ;
+        }
+        break;
+
+    case '&':
+        tok = ch;
+        cinp();
+        if (ch == '&') {
+            cinp();
+            tok = TOK_LAND;
+        } else if (ch == '=') {
+            cinp();
+            tok = TOK_A_AND;
+        }
+        break;
+        
+    case '|':
+        tok = ch;
+        cinp();
+        if (ch == '|') {
+            cinp();
+            tok = TOK_LOR;
+        } else if (ch == '=') {
+            cinp();
+            tok = TOK_A_OR;
+        }
+        break;
+
+    case '+':
+        tok = ch;
+        cinp();
+        if (ch == '+') {
+            cinp();
+            tok = TOK_INC;
+        } else if (ch == '=') {
+            cinp();
+            tok = TOK_A_ADD;
+        }
+        break;
+        
+    case '-':
+        tok = ch;
+        cinp();
+        if (ch == '-') {
+            cinp();
+            tok = TOK_DEC;
+        } else if (ch == '=') {
+            cinp();
+            tok = TOK_A_SUB;
+        } else if (ch == '>') {
+            cinp();
+            tok = TOK_ARROW;
+        }
+        break;
+
+    case '*':
+        tok = ch;
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_A_MUL;
+        }
+        break;
+
+    case '%':
+        tok = ch;
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_A_MOD;
+        }
+        break;
+        
+    case '^':
+        tok = ch;
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_A_XOR;
+        }
+        break;
+
+        /* comments or operator */
+    case '/':
+        tok = ch;
+        cinp();
+        if (ch == '=') {
+            cinp();
+            tok = TOK_A_DIV;
+        } 
+#if 0
+        else if (ch == '/' || ch == '*') {
+            parse_comments();
+            goto redo_no_start;
+        }
+#endif
+        break;
+        
+        /* simple tokens */
+    case '(':
+    case ')':
+    case '[':
+    case ']':
+    case '{':
+    case '}':
+    case ',':
+    case ';':
+    case ':':
+    case '?':
+    case '~':
+        tok = ch;
+        cinp();
+        break;
+    case CH_EOF:
+        tok = TOK_EOF;
+        break;
+    default:
+        error("unrecognized character \\x%02x", ch);
+        break;
     }
 }
 
@@ -2676,7 +2939,7 @@ static Sym *get_sym_ref(CType *type, Section *sec,
     Sym *sym;
 
     v = anon_sym++;
-    sym = sym_push1(&global_stack, v, type->t | VT_STATIC, 0);
+    sym = global_identifier_push(v, type->t | VT_STATIC, 0);
     sym->type.ref = type->ref;
     sym->r = VT_CONST | VT_SYM;
     put_extern_sym(sym, sec, offset, size);
@@ -2701,8 +2964,7 @@ Sym *external_global_sym(int v, CType *type, int r)
     s = sym_find(v);
     if (!s) {
         /* push forward reference */
-        s = sym_push1(&global_stack, 
-                      v, type->t | VT_EXTERN, 0);
+        s = global_identifier_push(v, type->t | VT_EXTERN, 0);
         s->type.ref = type->ref;
         s->r = r | VT_CONST | VT_SYM;
     }
@@ -4014,7 +4276,7 @@ static inline CType *pointed_type(CType *type)
 static void mk_pointer(CType *type)
 {
     Sym *s;
-    s = sym_push(0, type, 0, -1);
+    s = sym_push(SYM_FIELD, type, 0, -1);
     type->t = VT_PTR | (type->t & ~VT_TYPE);
     type->ref = s;
 }
@@ -4424,7 +4686,7 @@ static void struct_decl(CType *type, int u)
         next();
         /* struct already defined ? return it */
         /* XXX: check consistency */
-        s = sym_find(v | SYM_STRUCT);
+        s = struct_find(v);
         if (s) {
             if (s->type.t != a)
                 error("invalid type");
@@ -4754,7 +5016,7 @@ static void post_type(CType *type, AttributeDef *ad)
         type->t &= ~(VT_TYPEDEF | VT_STATIC | VT_EXTERN);
         post_type(type, ad);
         /* we push a anonymous symbol which will contain the function prototype */
-        s = sym_push(0, type, ad->func_call, l);
+        s = sym_push(SYM_FIELD, type, ad->func_call, l);
         s->next = first;
         type->t = t1 | VT_FUNC;
         type->ref = s;
@@ -4775,7 +5037,7 @@ static void post_type(CType *type, AttributeDef *ad)
         
         /* we push a anonymous symbol which will contain the array
            element type */
-        s = sym_push(0, type, 0, n);
+        s = sym_push(SYM_FIELD, type, 0, n);
         type->t = t1 | VT_ARRAY | VT_PTR;
         type->ref = s;
     }
@@ -5064,10 +5326,9 @@ static void unary(void)
             /* allow to take the address of a label */
             if (tok < TOK_UIDENT)
                 expect("label identifier");
-            s = sym_find1(&label_stack, tok);
+            s = label_find(tok);
             if (!s) {
-                s = sym_push1(&label_stack, tok, 0, 0);
-                s->r = LABEL_FORWARD;
+                s = label_push(tok, LABEL_FORWARD);
             }
             if (!s->type.t) {
                 s->type.t = VT_VOID;
@@ -5606,7 +5867,7 @@ static void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_re
     } else if (tok == '{') {
         next();
         /* declarations */
-        s = local_stack.top;
+        s = local_stack;
         while (tok != '}') {
             decl(VT_LOCAL);
             if (tok != '}')
@@ -5775,11 +6036,10 @@ static void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_re
                 expect("pointer");
             ggoto();
         } else if (tok >= TOK_UIDENT) {
-            s = sym_find1(&label_stack, tok);
+            s = label_find(tok);
             /* put forward definition if needed */
             if (!s) {
-                s = sym_push1(&label_stack, tok, 0, 0);
-                s->r = LABEL_FORWARD;
+                s = label_push(tok, LABEL_FORWARD);
             }
             /* label already defined */
             if (s->r & LABEL_FORWARD) 
@@ -5795,13 +6055,13 @@ static void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_re
         b = is_label();
         if (b) {
             /* label case */
-            s = sym_find1(&label_stack, b);
+            s = label_find(b);
             if (s) {
                 if (!(s->r & LABEL_FORWARD))
                     error("multiple defined label");
                 gsym((long)s->next);
             } else {
-                s = sym_push1(&label_stack, b, 0, 0);
+                s = label_push(b, 0);
             }
             s->next = (void *)ind;
             s->r = 0;
@@ -6576,7 +6836,7 @@ static void decl(int l)
                     sym->type = type;
                 } else {
                     /* put function symbol */
-                    sym = sym_push1(&global_stack, v, type.t, 0);
+                    sym = global_identifier_push(v, type.t, 0);
                     sym->type.ref = type.ref;
                 }
                 /* NOTE: we patch the symbol size later */
@@ -6589,7 +6849,7 @@ static void decl(int l)
                     put_func_debug(sym);
 #endif
                 /* push a dummy symbol to enable local sym storage */
-                sym_push1(&local_stack, 0, 0, 0);
+                sym_push2(&local_stack, SYM_FIELD, 0, 0);
                 gfunc_prolog(&type);
                 loc = 0;
                 rsym = 0;
@@ -6604,8 +6864,9 @@ static void decl(int l)
                 /* look if any labels are undefined. Define symbols if
                    '&&label' was used. */
                 {
-                    Sym *s;
-                    for(s = label_stack.top; s != NULL; s = s->prev) {
+                    Sym *s, *s1;
+                    for(s = label_stack; s != NULL; s = s1) {
+                        s1 = s->prev;
                         if (s->r & LABEL_FORWARD) {
                             error("label '%s' used but not defined",
                                   get_tok_str(s->v, NULL));
@@ -6615,9 +6876,12 @@ static void decl(int l)
                                1 is put. */
                             put_extern_sym(s, cur_text_section, (long)s->next, 1);
                         }
+                        /* remove label */
+                        table_ident[s->v - TOK_IDENT]->sym_label = NULL;
+                        tcc_free(s);
                     }
+                    label_stack = NULL;
                 }
-                sym_pop(&label_stack, NULL); /* reset label stack */
                 sym_pop(&local_stack, NULL); /* reset local stack */
                 /* end of function */
 #ifdef ENABLE_DEBUG
@@ -6722,7 +6986,7 @@ static int tcc_compile(TCCState *s1)
     mk_pointer(&char_pointer_type);
 
     func_old_type.t = VT_FUNC;
-    func_old_type.ref = sym_push(0, &int_type, FUNC_CDECL, FUNC_OLD);
+    func_old_type.ref = sym_push(SYM_FIELD, &int_type, FUNC_CDECL, FUNC_OLD);
 
 #if 0
     /* define 'void *alloca(unsigned int)' builtin function */
@@ -6731,7 +6995,7 @@ static int tcc_compile(TCCState *s1)
 
         p = anon_sym++;
         sym = sym_push(p, mk_pointer(VT_VOID), FUNC_CDECL, FUNC_NEW);
-        s1 = sym_push(0, VT_UNSIGNED | VT_INT, 0, 0);
+        s1 = sym_push(SYM_FIELD, VT_UNSIGNED | VT_INT, 0, 0);
         s1->next = NULL;
         sym->next = s1;
         sym_push(TOK_alloca, VT_FUNC | (p << VT_STRUCT_SHIFT), VT_CONST, 0);
