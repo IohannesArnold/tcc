@@ -64,24 +64,24 @@
 
 #ifdef ENABLE_DEBUG
 /* compile with debug symbol (and use them if error during execution) */
-int do_debug = 0;
+static int do_debug = 0;
 #endif
 
 #ifdef CONFIG_TCC_BCHECK
 /* compile with built-in memory and bounds checker */
-int do_bounds_check = 0;
+static int do_bounds_check = 0;
 #endif
 
 /* display benchmark infos */
-int do_bench = 0;
-int total_lines;
-int total_bytes;
+static int do_bench = 0;
+static int total_lines;
+static int total_bytes;
 
 /* use GNU C extensions */
-int gnu_ext = 1;
+static int gnu_ext = 1;
 
 /* use Tiny C extensions */
-int tcc_ext = 1;
+static int tcc_ext = 1;
 
 /* max number of callers shown if error */
 static int num_callers = 6;
@@ -699,6 +699,21 @@ static void cstr_free(CString *cstr)
 
 #define cstr_reset(cstr) cstr_free(cstr)
 
+static CString *cstr_dup(CString *cstr1)
+{
+    CString *cstr;
+    int size;
+
+    cstr = tcc_malloc(sizeof(CString));
+    size = cstr1->size;
+    cstr->size = size;
+    cstr->size_allocated = size;
+    cstr->data_allocated = tcc_malloc(size);
+    cstr->data = cstr->data_allocated;
+    memcpy(cstr->data_allocated, cstr1->data_allocated, size);
+    return cstr;
+}
+
 /* XXX: unicode ? */
 static void add_char(CString *cstr, int c)
 {
@@ -999,34 +1014,10 @@ int tcc_getc_slow(BufferedFile *bf)
 /* no need to put that inline */
 void handle_eob(void)
 {
-    TCCState *s1 = tcc_state;
-
     /* no need to do anything if not at EOB */
     if (file->buf_ptr <= file->buf_end)
         return;
-
-    for(;;) {
-        ch = tcc_getc_slow(file);
-        if (ch != CH_EOF)
-            return;
-        eof_seen = 1;
-        if (return_linefeed) {
-            ch = '\n';
-            return;
-        }
-        if (s1->include_stack_ptr == s1->include_stack)
-            return;
-        /* add end of include file debug info */
-#ifdef ENABLE_DEBUG
-        if (do_debug) {
-            put_stabd(N_EINCL, 0, 0);
-        }
-#endif
-        /* pop include stack */
-        tcc_close(file);
-        s1->include_stack_ptr--;
-        file = *s1->include_stack_ptr;
-    }
+    ch = tcc_getc_slow(file);
 }
 
 /* handle '\[\r]\n' */
@@ -1135,7 +1126,8 @@ void preprocess_skip(void)
     
     start_of_line = 1;
     a = 0;
-    while (1) {
+    for(;;) {
+    redo_no_start:
         switch(ch) {
         case ' ':
         case '\t':
@@ -1143,19 +1135,18 @@ void preprocess_skip(void)
         case '\v':
         case '\r':
             inp();
-            break;
+            goto redo_no_start;
         case '\n':
             start_of_line = 1;
             file->line_num++;
             inp();
-            break;
+            goto redo_no_start;
         case '\\':
             handle_stray();
-            break;
+            goto redo_no_start;
             /* skip strings */
         case '\"':
         case '\'':
-            start_of_line = 0;
             sep = ch;
             inp();
             while (ch != sep) {
@@ -1181,8 +1172,6 @@ void preprocess_skip(void)
                 parse_comment();
             } else if (ch == '/') {
                 parse_line_comment();
-            } else {
-                start_of_line = 0;
             }
             break;
 
@@ -1198,16 +1187,15 @@ void preprocess_skip(void)
                 else if (tok == TOK_ENDIF)
                     a--;
             }
-            start_of_line = 0;
             break;
         case CH_EOF:
             expect("#endif");
             break;
         default:
             inp();
-            start_of_line = 0;
             break;
         }
+        start_of_line = 0;
     }
  the_end: ;
 }
@@ -1313,22 +1301,13 @@ static void tok_str_add(TokenString *s, int t)
 
 static void tok_str_add2(TokenString *s, int t, CValue *cv)
 {
-    int n, i, size;
-    CString *cstr, *cstr1;
+    int n, i;
     CValue cv1;
 
     tok_str_add(s, t);
     if (t == TOK_STR || t == TOK_LSTR || t == TOK_PPNUM) {
         /* special case: need to duplicate string */
-        cstr1 = cv->cstr;
-        cstr = tcc_malloc(sizeof(CString));
-        size = cstr1->size;
-        cstr->size = size;
-        cstr->size_allocated = size;
-        cstr->data_allocated = tcc_malloc(size);
-        cstr->data = cstr->data_allocated;
-        memcpy(cstr->data_allocated, cstr1->data_allocated, size);
-        cv1.cstr = cstr;
+        cv1.cstr = cstr_dup(cv->cstr);
         tok_str_add(s, cv1.tab[0]);
     } else {
         n = tok_ext_size(t);
@@ -1574,17 +1553,11 @@ static inline void add_cached_include(TCCState *s1, int type,
     dynarray_add((void ***)&s1->cached_includes, &s1->nb_cached_includes, e);
 }
 
-
-enum IncludeState {
-    INCLUDE_STATE_NONE = 0,
-    INCLUDE_STATE_SEEK_IFNDEF,
-};
-
-void preprocess(void)
+/* is_bof is true if first non space token at beginning of file */
+static void preprocess(int is_bof)
 {
     TCCState *s1 = tcc_state;
     int size, i, c, n, line_num;
-    enum IncludeState state;
     char buf[1024], *q, *p;
     char buf1[1024];
     BufferedFile *f;
@@ -1593,9 +1566,6 @@ void preprocess(void)
     
     return_linefeed = 1; /* linefeed will be returned as a
                             token. EOF is also returned as line feed */
-    state = INCLUDE_STATE_NONE;
-    eof_seen = 0;
- redo1:
     next_nomacro();
  redo:
     switch(tok) {
@@ -1721,16 +1691,8 @@ void preprocess(void)
                 put_stabs(file->filename, N_BINCL, 0, 0, 0);
             }
 #endif
-            /* we check for the construct: #ifndef IDENT \n #define IDENT */
-            inp();
-            /* get first non space char */
-            while (is_space(ch) || ch == '\n')
-                cinp();
-            if (ch != '#')
-                goto the_end;
-            state = INCLUDE_STATE_SEEK_IFNDEF;
-            cinp();
-            goto redo1;
+            tok_flags |= TOK_FLAG_BOF;
+            goto the_end;
         }
         break;
     case TOK_IFNDEF:
@@ -1745,11 +1707,13 @@ void preprocess(void)
         next_nomacro();
         if (tok < TOK_IDENT)
             error("invalid argument for '#if%sdef'", c ? "n" : "");
-        if (state == INCLUDE_STATE_SEEK_IFNDEF) {
+        if (is_bof) {
             if (c) {
+#ifdef INC_DEBUG
+                printf("#ifndef %s\n", get_tok_str(tok, NULL));
+#endif
                 file->ifndef_macro = tok;
             }
-            state = INCLUDE_STATE_NONE;
         }
         c = (define_find(tok) != 0) ^ c;
     do_if:
@@ -1779,31 +1743,27 @@ void preprocess(void)
         if (!(c & 1)) {
         skip:
             preprocess_skip();
-            state = INCLUDE_STATE_NONE;
+            is_bof = 0;
             goto redo;
         }
         break;
     case TOK_ENDIF:
         if (s1->ifdef_stack_ptr <= file->ifdef_stack_ptr)
             error("#endif without matching #if");
+        s1->ifdef_stack_ptr--;
+        /* '#ifndef macro' was at the start of file. Now we check if
+           an '#endif' is exactly at the end of file */
         if (file->ifndef_macro &&
-            s1->ifdef_stack_ptr == (file->ifdef_stack_ptr + 1)) {
-            /* '#ifndef macro \n #define macro' was at the start of
-               file. Now we check if an '#endif' is exactly at the end
-               of file */
+            s1->ifdef_stack_ptr == file->ifdef_stack_ptr) {
+            file->ifndef_macro_saved = file->ifndef_macro;
+            /* need to set to zero to avoid false matches if another
+               #ifndef at middle of file */
+            file->ifndef_macro = 0;
             while (tok != TOK_LINEFEED)
                 next_nomacro();
-            /* XXX: should also skip comments, but it is more complicated */
-            if (eof_seen) {
-                add_cached_include(s1, file->inc_type, file->inc_filename, 
-                                   file->ifndef_macro);
-            } else {
-                /* if not end of file, we must desactivate the ifndef
-                   macro search */
-                file->ifndef_macro = 0;
-            }
+            tok_flags |= TOK_FLAG_ENDIF;
+            goto the_end;
         }
-        s1->ifdef_stack_ptr--;
         break;
     case TOK_LINE:
         next();
@@ -1846,7 +1806,7 @@ void preprocess(void)
         break;
     }
     /* ignore other preprocess commands or #! for C scripts */
-    while (tok != TOK_LINEFEED && tok != TOK_EOF)
+    while (tok != TOK_LINEFEED)
         next_nomacro();
  the_end:
     return_linefeed = 0;
@@ -2248,11 +2208,10 @@ void parse_number(const char *p)
 /* return next token without macro substitution */
 static inline void next_nomacro1(void)
 {
-    int b, t, start_of_line;
+    int b, t;
     char *q;
     TokenSym *ts;
 
-    start_of_line = 0;
  redo_no_start:
     switch(ch) {
     case ' ':
@@ -2267,13 +2226,50 @@ static inline void next_nomacro1(void)
         handle_stray();
         goto redo_no_start;
 
+    case CH_EOF:
+        {
+            TCCState *s1 = tcc_state;
+
+            if (return_linefeed) {
+                tok = TOK_LINEFEED;
+            } else if (s1->include_stack_ptr == s1->include_stack) {
+                /* no include left : end of file */
+                tok = TOK_EOF;
+            } else {
+                /* pop include file */
+                
+                /* test if previous '#endif' was after a #ifdef at
+                   start of file */
+                if (tok_flags & TOK_FLAG_ENDIF) {
+#ifdef INC_DEBUG
+                    printf("#endif %s\n", get_tok_str(file->ifndef_macro_saved, NULL));
+#endif
+                    add_cached_include(s1, file->inc_type, file->inc_filename,
+                                       file->ifndef_macro_saved);
+                }
+
+                /* add end of include file debug info */
+#ifdef ENABLE_DEBUG
+                if (do_debug) {
+                    put_stabd(N_EINCL, 0, 0);
+                }
+#endif
+                /* pop include stack */
+                tcc_close(file);
+                s1->include_stack_ptr--;
+                file = *s1->include_stack_ptr;
+                inp();
+                goto redo_no_start;
+            }
+        }
+        break;
+
     case '\n':
         file->line_num++;
         if (return_linefeed) {
-            /* XXX: should eat token ? */
             tok = TOK_LINEFEED;
         } else {
-            start_of_line = 1;
+            tok_flags |= TOK_FLAG_BOL;
             inp();
             goto redo_no_start;
         }
@@ -2281,8 +2277,8 @@ static inline void next_nomacro1(void)
 
     case '#':
         minp();
-        if (start_of_line) {
-            preprocess();
+        if (tok_flags & TOK_FLAG_BOL) {
+            preprocess(tok_flags & TOK_FLAG_BOF);
             goto redo_no_start;
         } else {
             if (ch == '#') {
@@ -2576,13 +2572,11 @@ static inline void next_nomacro1(void)
         tok = ch;
         cinp();
         break;
-    case CH_EOF:
-        tok = TOK_EOF;
-        break;
     default:
         error("unrecognized character \\x%02x", ch);
         break;
     }
+    tok_flags = 0;
 #if defined(PARSE_DEBUG)
     printf("token = %s\n", get_tok_str(tok, &tokc));
 #endif
@@ -2854,6 +2848,7 @@ static int macro_subst_tok(TokenString *tok_str,
             if (macro_ptr) {
                 t = *macro_ptr;
             } else {
+                /* XXX: incorrect with comments */
                 while (is_space(ch) || ch == '\n')
                     cinp();
                 t = ch;
@@ -7127,7 +7122,8 @@ static int tcc_compile(TCCState *s1)
         s1->nb_errors = 0;
         s1->error_set_jmp_enabled = 1;
 
-        ch = '\n'; /* needed to parse correctly first preprocessor command */
+        ch = '\n'; /* XXX: suppress that*/
+        tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
         next();
         decl(VT_CONST);
         if (tok != -1)

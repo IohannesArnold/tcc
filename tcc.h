@@ -149,7 +149,8 @@ typedef struct BufferedFile {
     unsigned char *buf_end;
     int fd;
     int line_num;    /* current line number - here to simply code */
-    int ifndef_macro;  /*'#ifndef macro \n #define macro' search */
+    int ifndef_macro;  /* #ifndef macro / #endif search */
+    int ifndef_macro_saved; /* saved ifndef_macro */
     int *ifdef_stack_ptr; /* ifdef_stack value at the start of the file */
     char inc_type;          /* type of include */
     char inc_filename[512]; /* filename specified by the user */
@@ -186,27 +187,30 @@ typedef struct CachedInclude {
 } CachedInclude;
 
 /* parser */
-struct BufferedFile *file;
-int ch, tok, tok1;
-CValue tokc, tok1c;
-CString tokcstr; /* current parsed string, if any */
+static struct BufferedFile *file;
+static int ch, tok, tok1;
+static CValue tokc, tok1c;
+static CString tokcstr; /* current parsed string, if any */
+/* additionnal informations about token */
+static int tok_flags;
+#define TOK_FLAG_BOL   0x0001 /* beginning of line before */
+#define TOK_FLAG_BOF   0x0002 /* beginning of file before */
+#define TOK_FLAG_ENDIF 0x0004 /* a endif was found matching starting #ifdef */
+
 /* if true, line feed is returned as a token. line feed is also
    returned at eof */
-int return_linefeed;
-/* set to TRUE if eof was reached */
-int eof_seen;
-/* sections */
-Section *text_section, *data_section, *bss_section; /* predefined sections */
-Section *cur_text_section; /* current section where function code is
-                              generated */
+static int return_linefeed; 
+static Section *text_section, *data_section, *bss_section; /* predefined sections */
+static Section *cur_text_section; /* current section where function code is
+                                     generated */
 /* bound check related sections */
-Section *bounds_section; /* contains global data bound description */
-Section *lbounds_section; /* contains local data bound description */
+static Section *bounds_section; /* contains global data bound description */
+static Section *lbounds_section; /* contains local data bound description */
 /* symbol sections */
-Section *symtab_section, *strtab_section;
+static Section *symtab_section, *strtab_section;
 
 /* debug sections */
-Section *stab_section, *stabstr_section;
+static Section *stab_section, *stabstr_section;
 
 /* loc : local variable index
    ind : output code index
@@ -214,31 +218,30 @@ Section *stab_section, *stabstr_section;
    prog: output code
    anon_sym: anonymous symbol index
 */
-int rsym, anon_sym,
-    prog, ind, loc;
+static int rsym, anon_sym, prog, ind, loc;
 
 /* expression generation modifiers */
-int const_wanted; /* true if constant wanted */
-int nocode_wanted; /* true if no code generation wanted for an expression */
-int global_expr;  /* true if compound literals must be allocated
-                     globally (used during initializers parsing */
-CType func_vt; /* current function return type (used by return
-                instruction) */
-int func_vc;
-int last_line_num, last_ind, func_ind; /* debug last line number and pc */
-int tok_ident;
-TokenSym **table_ident;
-TokenSym *hash_ident[TOK_HASH_SIZE];
-char token_buf[STRING_MAX_SIZE + 1];
-char *funcname;
-Sym *global_stack, *local_stack;
-Sym *define_stack;
-Sym *label_stack;
+static int const_wanted; /* true if constant wanted */
+static int nocode_wanted; /* true if no code generation wanted for an expression */
+static int global_expr;  /* true if compound literals must be allocated
+                            globally (used during initializers parsing */
+static CType func_vt; /* current function return type (used by return
+                         instruction) */
+static int func_vc;
+static int last_line_num, last_ind, func_ind; /* debug last line number and pc */
+static int tok_ident;
+static TokenSym **table_ident;
+static TokenSym *hash_ident[TOK_HASH_SIZE];
+static char token_buf[STRING_MAX_SIZE + 1];
+static char *funcname;
+static Sym *global_stack, *local_stack;
+static Sym *define_stack;
+static Sym *label_stack;
 
-SValue vstack[VSTACK_SIZE], *vtop;
-int *macro_ptr, *macro_ptr_allocated;
+static SValue vstack[VSTACK_SIZE], *vtop;
+static int *macro_ptr, *macro_ptr_allocated;
 /* some predefined types */
-CType char_pointer_type, func_old_type, int_type;
+static CType char_pointer_type, func_old_type, int_type;
 
 /* XXX: suppress that ASAP */
 static struct TCCState *tcc_state;
