@@ -6,10 +6,6 @@
    executables or dlls */
 #define CONFIG_TCC_CRT_PREFIX "/usr/lib"
 
-/* amount of virtual memory associated to a section (currently, we do
-   not realloc them) */
-#define SECTION_VSIZE       (1024 * 1024)
-
 #define INCLUDE_STACK_SIZE  32
 #define IFDEF_STACK_SIZE    64
 #define VSTACK_SIZE         64
@@ -27,6 +23,13 @@ typedef struct TokenSym {
     char str[1];
 } TokenSym;
 
+typedef struct CString {
+    int size; /* size in bytes */
+    void *data; /* either 'char *' or 'int *' */
+    int size_allocated;
+    void *data_allocated; /* if non NULL, data has been malloced */
+} CString;
+
 /* constant value */
 typedef union CValue {
     long double ld;
@@ -37,7 +40,7 @@ typedef union CValue {
     unsigned int ul; /* address (should be unsigned long on 64 bit cpu) */
     long long ll;
     unsigned long long ull;
-    struct TokenSym *ts;
+    struct CString *cstr;
     struct Sym *sym;
     void *ptr;
     int tab[1];
@@ -77,6 +80,7 @@ typedef struct SymStack {
 typedef struct Section {
     unsigned long data_offset; /* current data offset */
     unsigned char *data;       /* section data */
+    unsigned long data_allocated; /* used for realloc() handling */
     int sh_name;             /* elf section name (only used during output) */
     int sh_num;              /* elf section number */
     int sh_type;             /* elf section type */
@@ -165,6 +169,7 @@ typedef struct TokenString {
 struct BufferedFile *file;
 int ch, ch1, tok, tok1;
 CValue tokc, tok1c;
+CString tokcstr; /* current parsed string, if any */
 int return_linefeed; /* if true, line feed is returned as a token */
 
 /* sections */
@@ -227,8 +232,20 @@ BufferedFile *include_stack[INCLUDE_STACK_SIZE], **include_stack_ptr;
 int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
 char **include_paths;
 int nb_include_paths;
+char **sysinclude_paths;
+int nb_sysinclude_paths;
 int char_pointer_type;
 int func_old_type;
+
+/* if true, static linking is performed */
+static int static_link = 0;
+
+/* give the path of the tcc libraries */
+static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
+
+typedef struct TCCState {
+    int output_type;
+} TCCState;
 
 /* The current value can be: */
 #define VT_VALMASK   0x00ff
@@ -343,6 +360,9 @@ int func_old_type;
 #define TOK_A_SHL 0x81
 #define TOK_A_SAR 0x82
 
+/* WARNING: the content of this string encodes token numbers */
+static char tok_two_chars[] = "<=\236>=\235!=\225&&\240||\241++\244--\242==\224<<\1>>\2+=\253-=\255*=\252/=\257%=\245&=\246^=\336|=\374->\313..\250##\266";
+
 #define TOK_EOF       (-1)  /* end of file */
 #define TOK_LINEFEED  10    /* line feed */
 
@@ -421,11 +441,91 @@ enum {
 #undef DEF
 };
 
-/* give the path of the tcc libraries */
-static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
+void sum(int l);
+void next(void);
+void next_nomacro(void);
+int expr_const(void);
+void expr_eq(void);
+void gexpr(void);
+void decl(int l);
+void decl_initializer(int t, Section *sec, unsigned long c, int first, int size_only);
+void decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init,
+                            int v, int scope);
+int gv(int rc);
+void gv2(int rc1, int rc2);
+void move_reg(int r, int s);
+void save_regs(int n);
+void save_reg(int r);
+void vpop(void);
+void vswap(void);
+void vdup(void);
+int get_reg(int rc);
 
-/* if true, static linking is performed */
-static int static_link = 0;
+void macro_subst(TokenString *tok_str, 
+                 Sym **nested_list, int *macro_str);
+int save_reg_forced(int r);
+void gen_op(int op);
+void force_charshort_cast(int t);
+void gen_cast(int t);
+void vstore(void);
+Sym *sym_find(int v);
+Sym *sym_push(int v, int t, int r, int c);
+
+/* type handling */
+int type_size(int t, int *a);
+int pointed_type(int t);
+int pointed_size(int t);
+int is_compatible_types(int t1, int t2);
+int parse_btype(int *type_ptr, AttributeDef *ad);
+int type_decl(AttributeDef *ad, int *v, int t, int td);
+
+void error(const char *fmt, ...);
+void rt_error(unsigned long pc, const char *fmt, ...);
+void vpushi(int v);
+void vset(int t, int r, int v);
+void type_to_str(char *buf, int buf_size, 
+                 int t, const char *varstr);
+char *get_tok_str(int v, CValue *cv);
+Sym *external_sym(int v, int u, int r);
+
+/* section generation */
+void section_realloc(Section *sec, unsigned long new_size);
+void *section_ptr_add(Section *sec, unsigned long size);
+void greloc(Section *s, Sym *sym, unsigned long addr, int type);
+int tcc_add_dll(TCCState *s, const char *filename, int flags);
+
+#define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
+#define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
+static int tcc_add_file_internal(TCCState *s, const char *filename, int flags);
+
+void *tcc_malloc(unsigned long size);
+void *tcc_mallocz(unsigned long size);
+
+void dynarray_add(void ***ptab, int *nb_ptr, void *data);
+ 
+/* reserve at least 'size' bytes in section 'sec' from
+   sec->data_offset. Optimized for speed */
+static inline void *section_ptr(Section *sec, unsigned long size)
+{
+    unsigned long offset, offset1;
+    offset = sec->data_offset;
+    offset1 = offset + size;
+    if (offset1 > sec->data_allocated)
+        section_realloc(sec, offset1);
+    return sec->data + offset;
+}
+
+static inline int isid(int c)
+{
+    return (c >= 'a' && c <= 'z') ||
+        (c >= 'A' && c <= 'Z') ||
+        c == '_';
+}
+
+static inline int isnum(int c)
+{
+    return c >= '0' && c <= '9';
+}
 
 /* true if float/double/long double type */
 static inline int is_float(int t)
@@ -435,9 +535,49 @@ static inline int is_float(int t)
     return bt == VT_LDOUBLE || bt == VT_DOUBLE || bt == VT_FLOAT;
 }
 
-typedef struct TCCState {
-    int output_type;
-} TCCState;
+/* read one char. MUST call tcc_fillbuf if CH_EOB is read */
+#define TCC_GETC(bf) (*(bf)->buf_ptr++)
 
-#define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
-#define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
+/* read next char from current input file */
+static inline void inp(void)
+{
+    ch1 = TCC_GETC(file);
+    /* end of buffer/file handling */
+    if (ch1 == CH_EOB)
+        handle_eob();
+    if (ch1 == '\n')
+        file->line_num++;
+    //    printf("ch1=%c 0x%x\n", ch1, ch1);
+}
+
+
+/* memory management */
+#ifdef MEM_DEBUG
+int mem_cur_size;
+int mem_max_size;
+#endif
+
+static inline void tcc_free(void *ptr)
+{
+#ifdef MEM_DEBUG
+    mem_cur_size -= malloc_usable_size(ptr);
+#endif
+    free(ptr);
+}
+ 
+static inline void *tcc_realloc(void *ptr, unsigned long size)
+{
+    void *ptr1;
+#ifdef MEM_DEBUG
+    mem_cur_size -= malloc_usable_size(ptr);
+#endif
+    ptr1 = realloc(ptr, size);
+#ifdef MEM_DEBUG
+    /* NOTE: count not correct if alloc error, but not critical */
+    mem_cur_size += malloc_usable_size(ptr1);
+    if (mem_cur_size > mem_max_size)
+        mem_max_size = mem_cur_size;
+#endif
+    return ptr1;
+}
+

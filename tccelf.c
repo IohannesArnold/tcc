@@ -21,6 +21,7 @@
 #include "tcc.h"
 #include "i386-gen.h"
 #include "elf.h"
+#include "tccelf.h"
 #include <string.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -89,7 +90,7 @@ static void rebuild_hash(Section *s, unsigned int nb_buckets)
 }
 
 /* return the symbol number */
-static int put_elf_sym(Section *s, 
+int put_elf_sym(Section *s, 
                        unsigned long value, unsigned long size,
                        int info, int other, int shndx, const char *name)
 {
@@ -163,7 +164,7 @@ static int find_elf_sym(Section *s, const char *name)
 }
 
 /* return elf symbol value or error */
-static unsigned long get_elf_sym_val(const char *name)
+unsigned long get_elf_sym_val(const char *name)
 {
     int sym_index;
     Elf32_Sym *sym;
@@ -177,7 +178,7 @@ static unsigned long get_elf_sym_val(const char *name)
 
 /* add an elf symbol : check if it is already defined and patch
    it. Return symbol index. NOTE that sh_num can be SHN_UNDEF. */
-static int add_elf_sym(Section *s, unsigned long value, unsigned long size,
+int add_elf_sym(Section *s, unsigned long value, unsigned long size,
                        int info, int sh_num, const char *name)
 {
     Elf32_Sym *esym;
@@ -228,7 +229,7 @@ static int add_elf_sym(Section *s, unsigned long value, unsigned long size,
 }
 
 /* put relocation */
-static void put_elf_reloc(Section *symtab, Section *s, unsigned long offset,
+void put_elf_reloc(Section *symtab, Section *s, unsigned long offset,
                           int type, int symbol)
 {
     char buf[256];
@@ -252,16 +253,6 @@ static void put_elf_reloc(Section *symtab, Section *s, unsigned long offset,
     rel->r_info = ELF32_R_INFO(symbol, type);
 }
 
-/* put stab debug information */
-
-typedef struct {
-    unsigned long n_strx;         /* index into string table of name */
-    unsigned char n_type;         /* type of symbol */
-    unsigned char n_other;        /* misc info (usually empty) */
-    unsigned short n_desc;        /* description field */
-    unsigned long n_value;        /* value of symbol */
-} Stab_Sym;
-
 static void put_stabs(const char *str, int type, int other, int desc, 
                       unsigned long value)
 {
@@ -279,8 +270,8 @@ static void put_stabs(const char *str, int type, int other, int desc,
     sym->n_value = value;
 }
 
-static void put_stabs_r(const char *str, int type, int other, int desc, 
-                        unsigned long value, Section *sec, int sym_index)
+void put_stabs_r(const char *str, int type, int other, int desc, 
+                 unsigned long value, Section *sec, int sym_index)
 {
     put_stabs(str, type, other, desc, value);
     put_elf_reloc(symtab_section, stab_section, 
@@ -363,7 +354,7 @@ static void sort_syms(Section *s)
 }
 
 /* relocate common symbols in the .bss section */
-static void relocate_common_syms(void)
+void relocate_common_syms(void)
 {
     Elf32_Sym *sym, *sym_end;
     unsigned long offset, align;
@@ -392,7 +383,7 @@ static void *resolve_sym(const char *sym)
 
 /* relocate symbol table, resolve undefined symbols if do_resolve is
    true and output error if undefined symbol. */
-static void relocate_syms(int do_resolve)
+void relocate_syms(int do_resolve)
 {
     Elf32_Sym *sym, *esym, *sym_end;
     int sym_bind, sh_num, sym_index;
@@ -443,7 +434,7 @@ static void relocate_syms(int do_resolve)
 }
 
 /* relocate a given section (CPU dependant) */
-static void relocate_section(TCCState *s1, Section *s)
+void relocate_section(TCCState *s1, Section *s)
 {
     Section *sr;
     Elf32_Rel *rel, *rel_end, *qrel;
@@ -703,9 +694,9 @@ static void build_got_entries(void)
     }
 }
 
-static Section *new_symtab(const char *symtab_name, int sh_type, int sh_flags,
-                           const char *strtab_name, 
-                           const char *hash_name, int hash_sh_flags)
+Section *new_symtab(const char *symtab_name, int sh_type, int sh_flags,
+                    const char *strtab_name, 
+                    const char *hash_name, int hash_sh_flags)
 {
     Section *symtab, *strtab, *hash;
     int *ptr, nb_buckets;
@@ -741,7 +732,7 @@ static void put_dt(Section *dynamic, int dt, unsigned long val)
 }
 
 /* add tcc runtime libraries */
-static void tcc_add_runtime(TCCState *s1)
+void tcc_add_runtime(TCCState *s1)
 {
     char buf[1024];
     int i;
@@ -1418,8 +1409,8 @@ typedef struct SectionMergeInfo {
 
 /* load an object file and merge it with current files */
 /* XXX: handle correctly stab (debug) info */
-static int tcc_load_object_file(TCCState *s1, 
-                                int fd, unsigned long file_offset)
+int tcc_load_object_file(TCCState *s1, 
+                         int fd, unsigned long file_offset)
 { 
     Elf32_Ehdr ehdr;
     Elf32_Shdr *shdr, *sh;
@@ -1626,7 +1617,7 @@ typedef struct ArchiveHeader {
 } ArchiveHeader;
 
 /* load a '.a' file */
-static int tcc_load_archive(TCCState *s1, int fd)
+int tcc_load_archive(TCCState *s1, int fd)
 {
     ArchiveHeader hdr;
     char ar_size[11];
@@ -1674,7 +1665,7 @@ static int tcc_load_archive(TCCState *s1, int fd)
 /* load a DLL and all referenced DLLs. 'level = 0' means that the DLL
    is referenced by the user (so it should be added as DT_NEEDED in
    the generated ELF file) */
-static int tcc_load_dll(TCCState *s1, int fd, const char *filename, int level)
+int tcc_load_dll(TCCState *s1, int fd, const char *filename, int level)
 { 
     Elf32_Ehdr ehdr;
     Elf32_Shdr *shdr, *sh, *sh1;
@@ -1812,7 +1803,7 @@ static int ld_get_cmd(char *cmd, int cmd_size)
                      
 /* interpret a subset of GNU ldscripts to handle the dummy libc.so
    files */
-static int tcc_load_ldscript(TCCState *s1)
+int tcc_load_ldscript(TCCState *s1)
 {
     char cmd[64];
     char filename[1024];
