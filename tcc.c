@@ -32,11 +32,15 @@
 #include <math.h>
 #include <unistd.h>
 #include <signal.h>
+#include <malloc.h>
+#include <unistd.h>
+#include <fcntl.h>
+#ifndef WIN32
 #include <sys/ucontext.h>
 #include <sys/mman.h>
-#include <elf.h>
-#include <stab.h>
-#include <malloc.h>
+#endif
+#include "elf.h"
+#include "stab.h"
 #ifndef CONFIG_TCC_STATIC
 #include <dlfcn.h>
 #endif
@@ -99,15 +103,22 @@ typedef struct AttributeDef {
 #define TYPE_ABSTRACT  1 /* type without variable */
 #define TYPE_DIRECT    2 /* type with variable */
 
-typedef struct {
-    FILE *file;
-    char *filename;
-    int line_num;
-} IncludeFile;
+#define IO_BUF_SIZE 8192
+
+typedef struct BufferedFile {
+    unsigned char *buf_ptr;
+    unsigned char *buf_end;
+    int fd;
+    int line_num;    /* current line number - here to simply code */
+    char filename[1024];    /* current filename - here to simply code */
+    unsigned char buffer[IO_BUF_SIZE + 1]; /* extra size for CH_EOB char */
+} BufferedFile;
+
+#define CH_EOB   0       /* end of buffer or '\0' char in file */
+#define CH_EOF   (-1)   /* end of file */
 
 /* parser */
-FILE *file;
-int line_num;
+struct BufferedFile *file;
 int ch, ch1, tok, tok1;
 CValue tokc, tok1c;
 
@@ -130,13 +141,13 @@ int tok_ident;
 TokenSym **table_ident;
 TokenSym *hash_ident[TOK_HASH_SIZE];
 char token_buf[STRING_MAX_SIZE + 1];
-char *filename, *funcname;
+char *funcname;
 /* contains global symbols which remain between each translation unit */
 SymStack extern_stack;
 SymStack define_stack, global_stack, local_stack, label_stack;
 
 int *macro_ptr, *macro_ptr_allocated;
-IncludeFile include_stack[INCLUDE_STACK_SIZE], *include_stack_ptr;
+BufferedFile *include_stack[INCLUDE_STACK_SIZE], **include_stack_ptr;
 int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
 char *include_paths[INCLUDE_PATHS_MAX];
 int nb_include_paths;
@@ -165,8 +176,22 @@ int reg_classes[NB_REGS] = {
     /* st0 */ RC_FLOAT | RC_ST0,
 };
 
+#ifdef WIN32
+#define snprintf _snprintf
+/* currently incorrect */
+long double strtold(const char *nptr, char **endptr)
+{
+    return (long double)strtod(nptr, endptr);
+}
+float strtof(const char *nptr, char **endptr)
+{
+    return (float)strtod(nptr, endptr);
+}
+#else
+/* XXX: need to define this to use them in non ISOC99 context */
 extern float strtof (const char *__nptr, char **__endptr);
 extern long double strtold (const char *__nptr, char **__endptr);
+#endif
 
 void sum(int l);
 void next(void);
@@ -255,7 +280,7 @@ static TCCSyms tcc_syms[] = {
     { NULL, NULL },
 };
 
-void *dlsym(void *handle, char *symbol)
+void *dlsym(void *handle, const char *symbol)
 {
     TCCSyms *p;
     p = tcc_syms;
@@ -342,25 +367,27 @@ unsigned long long __ldtoull(long double a)
 
 /********************************************************/
 
-/* copy a string and truncate it */
+/* copy a string and truncate it. */
 char *pstrcpy(char *buf, int buf_size, const char *s)
 {
     char *q, *q_end;
     int c;
 
-    q = buf;
-    q_end = buf + buf_size - 1;
-    while (q < q_end) {
-        c = *s++;
-        if (c == '\0')
-            break;
-        *q++ = c;
+    if (buf_size > 0) {
+        q = buf;
+        q_end = buf + buf_size - 1;
+        while (q < q_end) {
+            c = *s++;
+            if (c == '\0')
+                break;
+            *q++ = c;
+        }
+        *q = '\0';
     }
-    *q = '\0';
     return buf;
 }
 
-/* strcat and truncate */
+/* strcat and truncate. */
 char *pstrcat(char *buf, int buf_size, const char *s)
 {
     int len;
@@ -384,12 +411,19 @@ Section *new_section(const char *name, int sh_type, int sh_flags)
     sec->sh_num = ++section_num;
     sec->sh_type = sh_type;
     sec->sh_flags = sh_flags;
+#ifdef WIN32
+    /* XXX: currently, a single malloc */
+    data = malloc(SECTION_VSIZE);
+    if (data == NULL)
+        error("could not alloc section '%s'", name);
+#else
     data = mmap(NULL, SECTION_VSIZE, 
                 PROT_EXEC | PROT_READ | PROT_WRITE, 
                 MAP_PRIVATE | MAP_ANONYMOUS, 
                 -1, 0);
     if (data == (void *)(-1))
         error("could not mmap section '%s'", name);
+#endif
     sec->data = data;
     sec->data_ptr = data;
     psec = &first_section;
@@ -466,11 +500,11 @@ static inline int toup(int c)
 
 void printline(void)
 {
-    IncludeFile *f;
+    BufferedFile **f;
     for(f = include_stack; f < include_stack_ptr; f++)
         fprintf(stderr, "In file included from %s:%d:\n", 
-                f->filename, f->line_num);
-    fprintf(stderr, "%s:%d: ", filename, line_num);
+                (*f)->filename, (*f)->line_num);
+    fprintf(stderr, "%s:%d: ", file->filename, file->line_num);
 }
 
 void error(const char *fmt, ...)
@@ -736,41 +770,96 @@ void sym_undef(SymStack *st, Sym *s)
     s->v = 0;
 }
 
-/* no need to put that inline */
-int handle_eof(void)
+/* I/O layer */
+
+BufferedFile *tcc_open(const char *filename)
 {
-    if (include_stack_ptr == include_stack)
-        return -1;
-    /* add end of include file debug info */
-#ifdef ENABLE_DEBUG
-    if (do_debug) {
-        put_stabd(N_EINCL, 0, 0);
+    int fd;
+    BufferedFile *bf;
+
+    fd = open(filename, O_RDONLY);
+    if (fd < 0)
+        return NULL;
+    bf = malloc(sizeof(BufferedFile));
+    if (!bf) {
+        close(fd);
+        return NULL;
     }
+    bf->fd = fd;
+    bf->buf_ptr = bf->buffer;
+    bf->buf_end = bf->buffer;
+    bf->buffer[0] = CH_EOB; /* put eob symbol */
+    pstrcpy(bf->filename, sizeof(bf->filename), filename);
+    bf->line_num = 1;
+    return bf;
+}
+
+void tcc_close(BufferedFile *bf)
+{
+    close(bf->fd);
+    free(bf);
+}
+
+/* read one char. MUST call tcc_fillbuf if CH_EOB is read */
+#define TCC_GETC(bf) (*(bf)->buf_ptr++)
+
+/* fill input buffer and return next char */
+int tcc_getc_slow(BufferedFile *bf)
+{
+    int len;
+    /* only tries to read if really end of buffer */
+    if (bf->buf_ptr >= bf->buf_end) {
+        if (bf->fd != -1) {
+            len = read(bf->fd, bf->buffer, IO_BUF_SIZE);
+            if (len < 0)
+                len = 0;
+        } else {
+            len = 0;
+        }
+        bf->buf_ptr = bf->buffer;
+        bf->buf_end = bf->buffer + len;
+        *bf->buf_end = CH_EOB;
+    }
+    if (bf->buf_ptr < bf->buf_end) {
+        return *bf->buf_ptr++;
+    } else {
+        bf->buf_ptr = bf->buf_end;
+        return CH_EOF;
+    }
+}
+
+/* no need to put that inline */
+void handle_eob(void)
+{
+    for(;;) {
+        ch1 = tcc_getc_slow(file);
+        if (ch1 != CH_EOF)
+            return;
+        
+        if (include_stack_ptr == include_stack)
+            return;
+        /* add end of include file debug info */
+#ifdef ENABLE_DEBUG
+        if (do_debug) {
+            put_stabd(N_EINCL, 0, 0);
+        }
 #endif
-    /* pop include stack */
-    fclose(file);
-    free(filename);
-    include_stack_ptr--;
-    file = include_stack_ptr->file;
-    filename = include_stack_ptr->filename;
-    line_num = include_stack_ptr->line_num;
-    return 0;
+        /* pop include stack */
+        tcc_close(file);
+        include_stack_ptr--;
+        file = *include_stack_ptr;
+    }
 }
 
 /* read next char from current input file */
 static inline void inp(void)
 {
- redo:
-    /* faster than fgetc */
-    ch1 = getc_unlocked(file);
-    if (ch1 == -1) {
-        if (handle_eof() < 0)
-            return;
-        else
-            goto redo;
-    }
+    ch1 = TCC_GETC(file);
+    /* end of buffer/file handling */
+    if (ch1 == CH_EOB)
+        handle_eob();
     if (ch1 == '\n')
-        line_num++;
+        file->line_num++;
     //    printf("ch1=%c 0x%x\n", ch1, ch1);
 }
 
@@ -981,7 +1070,7 @@ void preprocess(void)
     int size, i, c, v, t, *str, len;
     char buf[1024], *q, *p;
     char buf1[1024];
-    FILE *f;
+    BufferedFile *f;
     Sym **ps, *first, *s;
 
     cinp();
@@ -1066,15 +1155,15 @@ void preprocess(void)
         if (c == '\"') {
             /* first search in current dir if "header.h" */
             size = 0;
-            p = strrchr(filename, '/');
+            p = strrchr(file->filename, '/');
             if (p) 
-                size = p + 1 - filename;
+                size = p + 1 - file->filename;
             if (size > sizeof(buf1) - 1)
                 size = sizeof(buf1) - 1;
-            memcpy(buf1, filename, size);
+            memcpy(buf1, file->filename, size);
             buf1[size] = '\0';
             pstrcat(buf1, sizeof(buf1), buf);
-            f = fopen(buf1, "r");
+            f = tcc_open(buf1);
             if (f)
                 goto found;
         }
@@ -1083,7 +1172,7 @@ void preprocess(void)
             strcpy(buf1, include_paths[i]);
             strcat(buf1, "/");
             strcat(buf1, buf);
-            f = fopen(buf1, "r");
+            f = tcc_open(buf1);
             if (f)
                 goto found;
         }
@@ -1092,17 +1181,12 @@ void preprocess(void)
     found:
         /* push current file in stack */
         /* XXX: fix current line init */
-        include_stack_ptr->file = file;
-        include_stack_ptr->filename = filename;
-        include_stack_ptr->line_num = line_num;
-        include_stack_ptr++;
+        *include_stack_ptr++ = file;
         file = f;
-        filename = strdup(buf1);
-        line_num = 1;
         /* add include file debug info */
 #ifdef ENABLE_DEBUG
         if (do_debug) {
-            put_stabs(filename, N_BINCL, 0, 0, 0);
+            put_stabs(file->filename, N_BINCL, 0, 0, 0);
         }
 #endif
     } else if (tok == TOK_IFNDEF) {
@@ -1146,14 +1230,14 @@ void preprocess(void)
         next();
         if (tok != TOK_CINT)
             error("#line");
-        line_num = tokc.i;
+        file->line_num = tokc.i;
         skip_spaces();
         if (ch != '\n') {
             next();
             if (tok != TOK_STR)
                 error("#line");
-            /* XXX: potential memory leak */
-            filename = strdup(get_tok_str(tok, &tokc));
+            pstrcpy(file->filename, sizeof(file->filename), 
+                    get_tok_str(tok, &tokc));
         }
     } else if (tok == TOK_ERROR) {
         error("#error");
@@ -1789,10 +1873,10 @@ void macro_subst(int **tok_str, int *tok_len,
             break;
         /* special macros */
         if (tok == TOK___LINE__) {
-            cval.i = line_num;
+            cval.i = file->line_num;
             tok_add2(tok_str, tok_len, TOK_CINT, &cval);
         } else if (tok == TOK___FILE__) {
-            cval.ts = tok_alloc(filename, 0);
+            cval.ts = tok_alloc(file->filename, 0);
             tok_add2(tok_str, tok_len, TOK_STR, &cval);
         } else if (tok == TOK___DATE__) {
             cval.ts = tok_alloc("Jan  1 1970", 0);
@@ -3679,8 +3763,10 @@ int parse_btype(int *type_ptr, AttributeDef *ad)
         case TOK_VOLATILE:
         case TOK_REGISTER:
         case TOK_SIGNED:
+        case TOK___SIGNED__:
         case TOK_AUTO:
         case TOK_INLINE:
+        case TOK___INLINE__:
         case TOK_RESTRICT:
             next();
             break;
@@ -4435,10 +4521,10 @@ void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_reg)
     /* generate line number info */
 #ifdef ENABLE_DEBUG
     if (do_debug && 
-        (last_line_num != line_num || last_ind != ind)) {
-        put_stabn(N_SLINE, 0, line_num, ind - func_ind);
+        (last_line_num != file->line_num || last_ind != ind)) {
+        put_stabn(N_SLINE, 0, file->line_num, ind - func_ind);
         last_ind = ind;
-        last_line_num = line_num;
+        last_line_num = file->line_num;
     }
 #endif
 
@@ -5116,7 +5202,7 @@ void put_func_debug(int t)
     /* XXX: we put here a dummy type */
     snprintf(buf, sizeof(buf), "%s:%c1", 
              funcname, t & VT_STATIC ? 'f' : 'F');
-    put_stabs(buf, N_FUN, 0, line_num, ind);
+    put_stabs(buf, N_FUN, 0, file->line_num, ind);
     func_ind = ind;
     last_ind = 0;
     last_line_num = 0;
@@ -5314,13 +5400,11 @@ int tcc_compile_file(const char *filename1)
     Sym *define_start;
     char buf[512];
     
-    line_num = 1;
     funcname = "";
-    filename = (char *)filename1;
 
-    file = fopen(filename, "r");
+    file = tcc_open(filename1);
     if (!file)
-        error("file '%s' not found", filename);
+        error("file '%s' not found", filename1);
     include_stack_ptr = include_stack;
     ifdef_stack_ptr = ifdef_stack;
 
@@ -5333,7 +5417,8 @@ int tcc_compile_file(const char *filename1)
         getcwd(buf, sizeof(buf));
         pstrcat(buf, sizeof(buf), "/");
         put_stabs(buf, N_SO, 0, 0, (unsigned long)text_section->data_ptr);
-        put_stabs(filename, N_SO, 0, 0, (unsigned long)text_section->data_ptr);
+        put_stabs(file->filename, N_SO, 0, 0, 
+                  (unsigned long)text_section->data_ptr);
     }
 #endif
     /* define common 'char *' type because it is often used internally
@@ -5347,7 +5432,7 @@ int tcc_compile_file(const char *filename1)
     decl(VT_CONST);
     if (tok != -1)
         expect("declaration");
-    fclose(file);
+    tcc_close(file);
 
     /* end of translation unit info */
 #ifdef ENABLE_DEBUG
@@ -5828,7 +5913,6 @@ int launch_exe(int argc, char **argv)
 {
     Sym *s;
     int (*t)();
-    struct sigaction sigact;
 
     s = sym_find1(&extern_stack, TOK_MAIN);
     if (!s || (s->r & VT_FORWARD))
@@ -5836,6 +5920,10 @@ int launch_exe(int argc, char **argv)
     
 #ifdef ENABLE_DEBUG
     if (do_debug) {
+#ifdef WIN32
+        error("debug mode currently not available for Windows");
+#else        
+        struct sigaction sigact;
         /* install TCC signal handlers to print debug info on fatal
            runtime errors */
         sigact.sa_flags = SA_SIGINFO | SA_ONESHOT;
@@ -5846,11 +5934,15 @@ int launch_exe(int argc, char **argv)
         sigaction(SIGSEGV, &sigact, NULL);
         sigaction(SIGBUS, &sigact, NULL);
         sigaction(SIGABRT, &sigact, NULL);
+#endif
     }
 #endif
 
 #ifdef ENABLE_BOUNDS_CHECK
     if (do_bounds_check) {
+#ifdef WIN32
+        error("bound checking currently not available for Windows");
+#else
         int *p, *p_end;
         __bound_init();
         /* add all known static regions */
@@ -5860,6 +5952,7 @@ int launch_exe(int argc, char **argv)
             __bound_new_region((void *)p[0], p[1]);
             p += 2;
         }
+#endif
     }
 #endif
 
@@ -5870,7 +5963,7 @@ int launch_exe(int argc, char **argv)
 
 void help(void)
 {
-    printf("tcc version 0.9.3 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
+    printf("tcc version 0.9.4 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
            "usage: tcc [-Idir] [-Dsym[=val]] [-Usym] [-llib] [-g] [-b]\n"
            "           [-i infile] infile [infile_args...]\n"
            "\n"
@@ -5900,7 +5993,7 @@ int main(int argc, char **argv)
 
     /* add all tokens */
     tok_ident = TOK_IDENT;
-    p = "int\0void\0char\0if\0else\0while\0break\0return\0for\0extern\0static\0unsigned\0goto\0do\0continue\0switch\0case\0const\0volatile\0long\0register\0signed\0auto\0inline\0restrict\0float\0double\0_Bool\0short\0struct\0union\0typedef\0default\0enum\0sizeof\0__attribute__\0define\0include\0ifdef\0ifndef\0elif\0endif\0defined\0undef\0error\0line\0__LINE__\0__FILE__\0__DATE__\0__TIME__\0__VA_ARGS__\0__func__\0main\0section\0__section__\0aligned\0__aligned__\0unused\0__unused__\0";
+    p = "int\0void\0char\0if\0else\0while\0break\0return\0for\0extern\0static\0unsigned\0goto\0do\0continue\0switch\0case\0const\0volatile\0long\0register\0signed\0__signed__\0auto\0inline\0__inline__\0restrict\0float\0double\0_Bool\0short\0struct\0union\0typedef\0default\0enum\0sizeof\0__attribute__\0define\0include\0ifdef\0ifndef\0elif\0endif\0defined\0undef\0error\0line\0__LINE__\0__FILE__\0__DATE__\0__TIME__\0__VA_ARGS__\0__func__\0main\0section\0__section__\0aligned\0__aligned__\0unused\0__unused__\0";
     while (*p) {
         r = p;
         while (*r++);

@@ -178,6 +178,8 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define TOK_A_SHL 0x81
 #define TOK_A_SAR 0x82
 
+#define TOK_EOF   (-1)  /* end of file */
+
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
 
@@ -206,8 +208,10 @@ enum {
     TOK_LONG,
     TOK_REGISTER,
     TOK_SIGNED,
+    TOK___SIGNED__, /* gcc keyword */
     TOK_AUTO,
     TOK_INLINE,
+    TOK___INLINE__, /* gcc keyword */
     TOK_RESTRICT,
 
     /* unsupported type */
