@@ -427,20 +427,13 @@ enum {
     TOK_UNDEF,
     TOK_ERROR,
     TOK_LINE,
-    TOK___LINE__,
-    TOK___FILE__,
-    TOK___DATE__,
-    TOK___TIME__,
-    TOK___VA_ARGS__,
 
-    /* special identifiers */
-    TOK___FUNC__,
-    TOK_MAIN,
 #define DEF(id, str) id,
 #include "tcctok.h"
 #undef DEF
 };
 
+void cinp(void);
 void sum(int l);
 void next(void);
 void next_nomacro(void);
