@@ -139,7 +139,9 @@ typedef struct AttributeDef {
 #define MACRO_FUNC     1 /* function like macro */
 
 /* field 'Sym.r' for labels */
+#define LABEL_DEFINED  0 /* label is defined */
 #define LABEL_FORWARD  1 /* label is forward defined */
+#define LABEL_DECLARED 2 /* label is declared but never used */
 
 /* type_decl() types */
 #define TYPE_ABSTRACT  1 /* type without variable */
@@ -192,8 +194,8 @@ typedef struct CachedInclude {
 
 /* parser */
 static struct BufferedFile *file;
-static int ch, tok, tok1;
-static CValue tokc, tok1c;
+static int ch, tok;
+static CValue tokc;
 static CString tokcstr; /* current parsed string, if any */
 /* additionnal informations about token */
 static int tok_flags;
@@ -201,9 +203,17 @@ static int tok_flags;
 #define TOK_FLAG_BOF   0x0002 /* beginning of file before */
 #define TOK_FLAG_ENDIF 0x0004 /* a endif was found matching starting #ifdef */
 
-/* if true, line feed is returned as a token. line feed is also
-   returned at eof */
-static int return_linefeed; 
+static int *macro_ptr, *macro_ptr_allocated;
+static int *unget_saved_macro_ptr;
+static int unget_saved_buffer[TOK_MAX_SIZE + 1];
+static int unget_buffer_enabled;
+static int parse_flags;
+#define PARSE_FLAG_PREPROCESS 0x0001 /* activate preprocessing */
+#define PARSE_FLAG_TOK_NUM    0x0002 /* return numbers instead of TOK_PPNUM */
+#define PARSE_FLAG_LINEFEED   0x0004 /* line feed is returned as a
+                                        token. line feed is also
+                                        returned at eof */
+
 static Section *text_section, *data_section, *bss_section; /* predefined sections */
 static Section *cur_text_section; /* current section where function code is
                                      generated */
@@ -240,12 +250,13 @@ static char token_buf[STRING_MAX_SIZE + 1];
 static char *funcname;
 static Sym *global_stack, *local_stack;
 static Sym *define_stack;
-static Sym *label_stack;
+static Sym *global_label_stack, *local_label_stack;
 
 static SValue vstack[VSTACK_SIZE], *vtop;
-static int *macro_ptr, *macro_ptr_allocated;
 /* some predefined types */
 static CType char_pointer_type, func_old_type, int_type;
+/* true if isid(c) || isnum(c) */
+static unsigned char isidnum_table[256];
 
 /* XXX: suppress that ASAP */
 static struct TCCState *tcc_state;
@@ -281,9 +292,9 @@ typedef struct TCCState {
 
     /* got handling */
     Section *got;
+    Section *plt;
     unsigned long *got_offsets;
     int nb_got_offsets;
-    int nb_plt_entries;
     /* give the correspondance from symtab indexes to dynsym indexes */
     int *symtab_to_dynsym;
 
@@ -291,6 +302,9 @@ typedef struct TCCState {
     Section *dynsymtab_section;
     /* exported dynamic symbol section */
     Section *dynsym;
+
+    /* if true, no standard headers are added */
+    int nostdinc;
 
     /* if true, static linking is performed */
     int static_link;
@@ -301,6 +315,9 @@ typedef struct TCCState {
     int error_set_jmp_enabled;
     jmp_buf error_jmp_buf;
     int nb_errors;
+
+    /* tiny assembler state */
+    Sym *asm_labels;
 
     /* see include_stack_ptr */
     BufferedFile *include_stack[INCLUDE_STACK_SIZE];
@@ -358,9 +375,11 @@ typedef struct TCCState {
 #define VT_EXTERN  0x00000080  /* extern definition */
 #define VT_STATIC  0x00000100  /* static variable */
 #define VT_TYPEDEF 0x00000200  /* typedef definition */
+#define VT_INLINE  0x00000400  /* inline definition */
 
 /* type mask (except storage) */
-#define VT_TYPE    (~(VT_EXTERN | VT_STATIC | VT_TYPEDEF))
+#define VT_STORAGE (VT_EXTERN | VT_STATIC | VT_TYPEDEF | VT_INLINE)
+#define VT_TYPE    (~(VT_STORAGE))
 
 /* token values */
 
@@ -431,6 +450,65 @@ static char tok_two_chars[] = "<=\236>=\235!=\225&&\240||\241++\244--\242==\224<
 
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
+
+/* only used for i386 asm opcodes definitions */
+#define DEF_ASM(x) DEF(TOK_ASM_ ## x, #x)
+
+#define DEF_BWL(x) \
+ DEF(TOK_ASM_ ## x ## b, #x "b") \
+ DEF(TOK_ASM_ ## x ## w, #x "w") \
+ DEF(TOK_ASM_ ## x ## l, #x "l") \
+ DEF(TOK_ASM_ ## x, #x)
+
+#define DEF_WL(x) \
+ DEF(TOK_ASM_ ## x ## w, #x "w") \
+ DEF(TOK_ASM_ ## x ## l, #x "l") \
+ DEF(TOK_ASM_ ## x, #x)
+
+#define DEF_FP1(x) \
+ DEF(TOK_ASM_ ## f ## x ## s, "f" #x "s") \
+ DEF(TOK_ASM_ ## fi ## x ## l, "fi" #x "l") \
+ DEF(TOK_ASM_ ## f ## x ## l, "f" #x "l") \
+ DEF(TOK_ASM_ ## fi ## x ## s, "fi" #x "s")
+
+#define DEF_FP(x) \
+ DEF(TOK_ASM_ ## f ## x, "f" #x ) \
+ DEF(TOK_ASM_ ## f ## x ## p, "f" #x "p") \
+ DEF_FP1(x)
+
+#define DEF_ASMTEST(x) \
+ DEF_ASM(x ## o) \
+ DEF_ASM(x ## no) \
+ DEF_ASM(x ## b) \
+ DEF_ASM(x ## c) \
+ DEF_ASM(x ## nae) \
+ DEF_ASM(x ## nb) \
+ DEF_ASM(x ## nc) \
+ DEF_ASM(x ## ae) \
+ DEF_ASM(x ## e) \
+ DEF_ASM(x ## z) \
+ DEF_ASM(x ## ne) \
+ DEF_ASM(x ## nz) \
+ DEF_ASM(x ## be) \
+ DEF_ASM(x ## na) \
+ DEF_ASM(x ## nbe) \
+ DEF_ASM(x ## a) \
+ DEF_ASM(x ## s) \
+ DEF_ASM(x ## ns) \
+ DEF_ASM(x ## p) \
+ DEF_ASM(x ## pe) \
+ DEF_ASM(x ## np) \
+ DEF_ASM(x ## po) \
+ DEF_ASM(x ## l) \
+ DEF_ASM(x ## nge) \
+ DEF_ASM(x ## nl) \
+ DEF_ASM(x ## ge) \
+ DEF_ASM(x ## le) \
+ DEF_ASM(x ## ng) \
+ DEF_ASM(x ## nle) \
+ DEF_ASM(x ## g)
+
+#define TOK_ASM_int TOK_INT
 
 enum {
     TOK_LAST = TOK_IDENT - 1,
