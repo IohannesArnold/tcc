@@ -553,6 +553,7 @@ typedef struct ASMOperand {
 #endif
 
 char *pstrcpy(char *buf, int buf_size, const char *s);
+char *pstrcat(char *buf, int buf_size, const char *s);
 
 void gexpr(void);
 void minp(void);

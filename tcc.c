@@ -124,7 +124,6 @@ extern float strtof (const char *__nptr, char **__endptr);
 extern long double strtold (const char *__nptr, char **__endptr);
 #endif
 
-static char *pstrcat(char *buf, int buf_size, const char *s);
 
 static void next_nomacro(void);
 static void parse_expr_type(CType *type);
@@ -234,7 +233,7 @@ char *pstrcpy(char *buf, int buf_size, const char *s)
 }
 
 /* strcat and truncate. */
-static char *pstrcat(char *buf, int buf_size, const char *s)
+char *pstrcat(char *buf, int buf_size, const char *s)
 {
     int len;
     len = strlen(buf);
