@@ -187,7 +187,7 @@ typedef struct CachedInclude {
 
 /* parser */
 struct BufferedFile *file;
-int ch, ch1, tok, tok1;
+int ch, tok, tok1;
 CValue tokc, tok1c;
 CString tokcstr; /* current parsed string, if any */
 /* if true, line feed is returned as a token. line feed is also
@@ -432,7 +432,8 @@ enum {
 #undef DEF
 };
 
-void cinp(void);
+void minp(void);
+void parse_comment(void);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
@@ -498,16 +499,13 @@ static inline int is_float(int t)
 /* read one char. MUST call tcc_fillbuf if CH_EOB is read */
 #define TCC_GETC(bf) (*(bf)->buf_ptr++)
 
-/* read next char from current input file */
+/* read next char from current input file and handle end of input buffer */
 static inline void inp(void)
 {
-    ch1 = TCC_GETC(file);
+    ch = *(file->buf_ptr++);
     /* end of buffer/file handling */
-    if (ch1 == CH_EOB)
+    if (ch == CH_EOB)
         handle_eob();
-    if (ch1 == '\n')
-        file->line_num++;
-    //    printf("ch1=%c 0x%x\n", ch1, ch1);
 }
 
 
