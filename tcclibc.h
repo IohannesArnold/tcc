@@ -4,6 +4,8 @@
  * only for your convenience so that you do not need to put the whole
  * glibc include files on your floppy disk 
  */
+#ifndef _TCCLIBC_H
+#define _TCCLIBC_H
 
 #include <stddef.h>
 #include <stdarg.h>
@@ -44,13 +46,13 @@ int fprintf(FILE *stream, const char *format, ...);
 int sprintf(char *str, const char *format, ...);
 int snprintf(char *str, size_t size, const  char  *format, ...);
 int asprintf(char **strp, const char *format, ...);
-int dprintf(int d, const char *format, ...);
+int dprintf(int fd, const char *format, ...);
 int vprintf(const char *format, va_list ap);
 int vfprintf(FILE  *stream,  const  char *format, va_list ap);
 int vsprintf(char *str, const char *format, va_list ap);
 int vsnprintf(char *str, size_t size, const char  *format, va_list ap);
 int vasprintf(char  **strp,  const  char *format, va_list ap);
-int vdprintf(int d, const char *format, va_list ap);
+int vdprintf(int fd, const char *format, va_list ap);
 
 void perror(const char *s);
 
@@ -62,6 +64,7 @@ char *strrchr(const char *s, int c);
 char *strcpy(char *dest, const char *src);
 int strcmp(const char *str1, const char *str2);
 void *memcpy(void *dest, const void *src, size_t n);
+void *memmove(void *dest, const void *src, size_t n);
 void *memset(void *s, int c, size_t n);
 int memcmp (const void * ptr1, const void * ptr2, size_t num);
 char *strdup(const char *s);
@@ -75,7 +78,6 @@ void *dlopen(const char *filename, int flag);
 const char *dlerror(void);
 void *dlsym(void *handle, char *symbol);
 int dlclose(void *handle);
-
 
 /* elf.h */
 /* Intel 80386 specific definitions.  */
@@ -96,3 +98,4 @@ int dlclose(void *handle);
 /* Keep this the last entry.  */
 #define R_386_NUM	11
 
+#endif /* _TCCLIBC_H */
