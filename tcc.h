@@ -532,6 +532,7 @@ typedef struct ASMOperand {
     int ref_index; /* if >= 0, gives reference to a output constraint */
     int priority; /* priority, used to assign registers */
     int reg; /* if >= 0, register number used for this operand */
+    int is_llong; /* true if double register value */
 } ASMOperand;
 
 #endif
