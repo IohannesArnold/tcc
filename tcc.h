@@ -41,7 +41,6 @@ typedef union CValue {
     long long ll;
     unsigned long long ull;
     struct CString *cstr;
-    struct Sym *sym;
     void *ptr;
     int tab[1];
 } CValue;
@@ -53,6 +52,7 @@ typedef struct SValue {
     unsigned short r2;     /* second register, used for 'long long'
                               type. If not used, set to VT_CONST */
     CValue c;              /* constant, if VT_CONST */
+    struct Sym *sym;       /* symbol, if (VT_SYM | VT_CONST) */
 } SValue;
 
 /* symbol management */
@@ -437,7 +437,7 @@ void cinp(void);
 void sum(int l);
 void next(void);
 void next_nomacro(void);
-int expr_const(void);
+static int expr_const(void);
 void expr_eq(void);
 void gexpr(void);
 void decl(int l);
@@ -480,13 +480,14 @@ void vset(int t, int r, int v);
 void type_to_str(char *buf, int buf_size, 
                  int t, const char *varstr);
 char *get_tok_str(int v, CValue *cv);
-Sym *external_sym(int v, int u, int r);
 
 /* section generation */
 void section_realloc(Section *sec, unsigned long new_size);
 void *section_ptr_add(Section *sec, unsigned long size);
 void greloc(Section *s, Sym *sym, unsigned long addr, int type);
 int tcc_add_dll(TCCState *s, const char *filename, int flags);
+Sym *external_sym(int v, int u, int r);
+Sym *external_global_sym(int v, int u, int r);
 
 #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
 #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */

@@ -59,3 +59,4 @@ typedef struct GFuncContext {
    reference to a symbol. It is in fact the same as oad ! */
 #define psym oad
 
+int oad(int c, int s);
