@@ -316,6 +316,8 @@ typedef struct TCCState {
     int warn_unsupported;
     int warn_error;
 
+    int warn_none;
+
     /* error handling */
     void *error_opaque;
     void (*error_func)(void *opaque, const char *msg);
