@@ -142,7 +142,10 @@ typedef struct BufferedFile {
     unsigned char *buf_end;
     int fd;
     int line_num;    /* current line number - here to simply code */
+    int ifndef_macro;  /*'#ifndef macro \n #define macro' search */
     int *ifdef_stack_ptr; /* ifdef_stack value at the start of the file */
+    char inc_type;          /* type of include */
+    char inc_filename[512]; /* filename specified by the user */
     char filename[1024];    /* current filename - here to simplify code */
     unsigned char buffer[IO_BUF_SIZE + 1]; /* extra size for CH_EOB char */
 } BufferedFile;
@@ -166,6 +169,14 @@ typedef struct TokenString {
     int last_line_num;
 } TokenString;
 
+/* include file cache, used to find files faster and also to eliminate
+   inclusion if the include file is protected by #ifndef ... #endif */
+typedef struct CachedInclude {
+    int ifndef_macro;
+    char type; /* '"' or '>' to give include type */
+    char filename[1]; /* path specified in #include */
+} CachedInclude;
+
 /* parser */
 struct BufferedFile *file;
 int ch, ch1, tok, tok1;
@@ -174,7 +185,8 @@ CString tokcstr; /* current parsed string, if any */
 /* if true, line feed is returned as a token. line feed is also
    returned at eof */
 int return_linefeed;
-
+/* set to TRUE if eof was reached */
+int eof_seen;
 /* sections */
 Section **sections;
 int nb_sections; /* number of sections, including first dummy section */
@@ -208,6 +220,9 @@ Section *stab_section, *stabstr_section;
 
 char **library_paths;
 int nb_library_paths;
+
+CachedInclude **cached_includes;
+int nb_cached_includes;
 
 /* loc : local variable index
    ind : output code index
