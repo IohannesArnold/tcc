@@ -1,4 +1,23 @@
+#ifndef CONFIG_TCC_PREFIX
+#define CONFIG_TCC_PREFIX "/usr/local"
+#endif
+
+/* path to find crt1.o, crti.o and crtn.o. Only needed when generating
+   executables or dlls */
+#define CONFIG_TCC_CRT_PREFIX "/usr/lib"
+
+/* amount of virtual memory associated to a section (currently, we do
+   not realloc them) */
+#define SECTION_VSIZE       (1024 * 1024)
+
+#define INCLUDE_STACK_SIZE  32
+#define IFDEF_STACK_SIZE    64
 #define VSTACK_SIZE         64
+#define STRING_MAX_SIZE     1024
+
+#define TOK_HASH_SIZE       2048 /* must be a power of two */
+#define TOK_ALLOC_INCR      512  /* must be a power of two */
+#define SYM_HASH_SIZE       1031
 
 /* token symbol management */
 typedef struct TokenSym {
@@ -44,6 +63,11 @@ typedef struct Sym {
     struct Sym *hash_next; /* next symbol in hash table */
 } Sym;
 
+typedef struct SymStack {
+  struct Sym *top;
+  struct Sym *hash[SYM_HASH_SIZE];
+} SymStack;
+
 /* section definition */
 /* XXX: use directly ELF structure for parameters ? */
 /* special flag to indicate that the section should not be linked to
@@ -76,6 +100,13 @@ typedef struct DLLReference {
     char name[1];
 } DLLReference;
 
+/* GNUC attribute definition */
+typedef struct AttributeDef {
+    int aligned;
+    Section *section;
+    unsigned char func_call; /* FUNC_CDECL or FUNC_STDCALL */
+} AttributeDef;
+
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
 #define SYM_FIRST_ANOM (1 << (31 - VT_STRUCT_SHIFT)) /* first anonymous sym */
@@ -100,8 +131,43 @@ typedef struct DLLReference {
 #define TYPE_ABSTRACT  1 /* type without variable */
 #define TYPE_DIRECT    2 /* type with variable */
 
+#define IO_BUF_SIZE 8192
+
+typedef struct BufferedFile {
+    unsigned char *buf_ptr;
+    unsigned char *buf_end;
+    int fd;
+    int line_num;    /* current line number - here to simply code */
+    char filename[1024];    /* current filename - here to simplify code */
+    unsigned char buffer[IO_BUF_SIZE + 1]; /* extra size for CH_EOB char */
+} BufferedFile;
+
+#define CH_EOB   0       /* end of buffer or '\0' char in file */
+#define CH_EOF   (-1)   /* end of file */
+
+/* parsing state (used to save parser state to reparse part of the
+   source several times) */
+typedef struct ParseState {
+    int *macro_ptr;
+    int line_num;
+    int tok;
+    CValue tokc;
+} ParseState;
+
+/* used to record tokens */
+typedef struct TokenString {
+    int *str;
+    int len;
+    int last_line_num;
+} TokenString;
+
+/* parser */
+struct BufferedFile *file;
+int ch, ch1, tok, tok1;
+CValue tokc, tok1c;
+int return_linefeed; /* if true, line feed is returned as a token */
+
 /* sections */
-/* XXX: suppress first_section */
 Section **sections;
 int nb_sections; /* number of sections, including first dummy section */
 Section *text_section, *data_section, *bss_section; /* predefined sections */
@@ -124,7 +190,6 @@ int nb_plt_entries;
 /* give the correspondance from symtab indexes to dynsym indexes */
 int *symtab_to_dynsym;
 
-
 /* array of all loaded dlls (including those referenced by loaded
    dlls) */
 DLLReference **loaded_dlls;
@@ -144,11 +209,26 @@ int nb_library_paths;
 */
 int rsym, anon_sym,
     prog, ind, loc, const_wanted;
-
+int global_expr; /* true if compound literals must be allocated
+                    globally (used during initializers parsing */
 int func_vt, func_vc; /* current function return type (used by
                          return instruction) */
+int last_line_num, last_ind, func_ind; /* debug last line number and pc */
+int tok_ident;
+TokenSym **table_ident;
+TokenSym *hash_ident[TOK_HASH_SIZE];
+char token_buf[STRING_MAX_SIZE + 1];
+char *funcname;
+SymStack define_stack, global_stack, local_stack, label_stack;
 
 SValue vstack[VSTACK_SIZE], *vtop;
+int *macro_ptr, *macro_ptr_allocated;
+BufferedFile *include_stack[INCLUDE_STACK_SIZE], **include_stack_ptr;
+int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
+char **include_paths;
+int nb_include_paths;
+int char_pointer_type;
+int func_old_type;
 
 /* The current value can be: */
 #define VT_VALMASK   0x00ff
@@ -341,6 +421,12 @@ enum {
 #undef DEF
 };
 
+/* give the path of the tcc libraries */
+static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
+
+/* if true, static linking is performed */
+static int static_link = 0;
+
 /* true if float/double/long double type */
 static inline int is_float(int t)
 {
@@ -349,3 +435,9 @@ static inline int is_float(int t)
     return bt == VT_LDOUBLE || bt == VT_DOUBLE || bt == VT_FLOAT;
 }
 
+typedef struct TCCState {
+    int output_type;
+} TCCState;
+
+#define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
+#define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
