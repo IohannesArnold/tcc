@@ -32,7 +32,6 @@
 #include <math.h>
 #include <unistd.h>
 #include <signal.h>
-#include <malloc.h>
 #include <unistd.h>
 #include <fcntl.h>
 #ifndef WIN32
@@ -171,6 +170,9 @@ int reg_classes[NB_REGS] = {
     /* st0 */ RC_FLOAT | RC_ST0,
 };
 
+/* give the path of the tcc libraries */
+static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
+
 struct TCCState {
     int output_type;
 };
@@ -261,6 +263,8 @@ void type_to_str(char *buf, int buf_size,
                  int t, const char *varstr);
 char *get_tok_str(int v, CValue *cv);
 Sym *external_sym(int v, int u, int r);
+static Sym *get_sym_ref(int t, Section *sec, 
+                        unsigned long offset, unsigned long size);
 
 /* section generation */
 void put_extern_sym(Sym *sym, Section *section, unsigned long value);
@@ -2154,18 +2158,27 @@ void vpushi(int v)
     vsetc(VT_INT, VT_CONST, &cval);
 }
 
-/* push a reference to a section offset by adding a dummy symbol */
-void vpush_ref(int t, Section *sec, unsigned long offset)
+/* Return a static symbol pointing to a section */
+static Sym *get_sym_ref(int t, Section *sec, 
+                        unsigned long offset, unsigned long size)
 {
     int v;
     Sym *sym;
-    CValue cval;
 
     v = anon_sym++;
     sym = sym_push1(&global_stack, v, t | VT_STATIC, 0);
     sym->r = VT_CONST | VT_SYM;
     put_extern_sym(sym, sec, offset);
-    cval.sym = sym;
+    return sym;
+}
+
+/* push a reference to a section offset by adding a dummy symbol */
+/* XXX: add size */
+void vpush_ref(int t, Section *sec, unsigned long offset)
+{
+    CValue cval;
+
+    cval.sym = get_sym_ref(t, sec, offset, 0);
     vsetc(t, VT_CONST | VT_SYM, &cval);
 }
 
@@ -6075,7 +6088,8 @@ void put_extern_sym(Sym *sym, Section *section, unsigned long value)
     int sym_type, sym_bind, sh_num, info;
     Elf32_Sym *esym;
     const char *name;
-    
+    char buf[32];
+
     if (section)
         sh_num = section->sh_num;
     else
@@ -6089,7 +6103,30 @@ void put_extern_sym(Sym *sym, Section *section, unsigned long value)
             sym_bind = STB_LOCAL;
         else
             sym_bind = STB_GLOBAL;
+        
         name = get_tok_str(sym->v, NULL);
+#ifdef CONFIG_TCC_BCHECK
+        if (do_bounds_check) {
+            /* if bound checking is activated, we change some function
+               names by adding the "__bound" prefix */
+            switch(sym->v) {
+            case TOK_malloc: 
+            case TOK_free: 
+            case TOK_realloc: 
+            case TOK_memalign: 
+            case TOK_calloc: 
+            case TOK_memcpy: 
+            case TOK_memmove:
+            case TOK_memset:
+            case TOK_strlen:
+            case TOK_strcpy:
+                strcpy(buf, "__bound_");
+                strcat(buf, name);
+                name = buf;
+                break;
+            }
+        }
+#endif
         info = ELF32_ST_INFO(sym_bind, sym_type);
         sym->c = add_elf_sym(symtab_section, value, 0, info, sh_num, name);
     } else {
@@ -6254,14 +6291,6 @@ static void relocate_common_syms(void)
 
 static void *resolve_sym(const char *sym)
 {
-#ifdef CONFIG_TCC_BCHECK
-    if (do_bounds_check) {
-        void *ptr;
-        ptr = bound_resolve_sym(sym);
-        if (ptr)
-            return ptr;
-    }
-#endif
     return dlsym(NULL, sym);
 }
 
@@ -6545,7 +6574,44 @@ static void put_dt(Section *dynamic, int dt, unsigned long val)
 /* add tcc runtime libraries */
 static void tcc_add_runtime(TCCState *s1)
 {
-    tcc_add_file(s1, CONFIG_TCC_PREFIX "/lib/tcc/libtcc-rt.o");
+    char buf[1024];
+
+    snprintf(buf, sizeof(buf), "%s/%s", tcc_lib_path, "libtcc-rt.o");
+    tcc_add_file(s1, buf);
+#ifdef CONFIG_TCC_BCHECK
+    if (do_bounds_check) {
+        /* XXX: add an object file to do that */
+        *(int *)bounds_section->data_ptr = 0;
+        bounds_section->data_ptr += sizeof(int);
+        add_elf_sym(symtab_section, 0, 0, 
+                    ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+                    bounds_section->sh_num, "__bounds_start");
+        add_elf_sym(symtab_section, (long)&rt_error, 0, 
+                    ELF32_ST_INFO(STB_GLOBAL, STT_FUNC),
+                    SHN_ABS, "rt_error");
+        /* add bound check code */
+        snprintf(buf, sizeof(buf), "%s/%s", tcc_lib_path, "bcheck.o");
+        tcc_add_file(s1, buf);
+    }
+#endif
+    /* add libc if not memory output */
+    if (s1->output_type != TCC_OUTPUT_MEMORY) {
+        tcc_add_library(s1, "c");
+        tcc_add_file(s1, CONFIG_TCC_CRT_PREFIX "/crtn.o");
+    }
+    /* add various standard linker symbols */
+    add_elf_sym(symtab_section, 
+                text_section->data_ptr - text_section->data, 0,
+                ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+                text_section->sh_num, "_etext");
+    add_elf_sym(symtab_section, 
+                data_section->data_ptr - data_section->data, 0,
+                ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+                data_section->sh_num, "_edata");
+    add_elf_sym(symtab_section, 
+                bss_section->data_ptr - bss_section->data, 0,
+                ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+                bss_section->sh_num, "_end");
 }
 
 /* add dynamic sections so that the executable is dynamically linked */
@@ -6576,12 +6642,8 @@ int tcc_output_file(TCCState *s1, const char *filename)
     
     file_type = s1->output_type;
 
-    /* add libc crtn object */
-    if (file_type != TCC_OUTPUT_OBJ) {
+    if (file_type != TCC_OUTPUT_OBJ)
         tcc_add_runtime(s1);
-        tcc_add_library(s1, "c");
-        tcc_add_file(s1, CONFIG_TCC_CRT_PREFIX "/crtn.o");
-    }
 
     interp = NULL;
     dynamic = NULL;
@@ -7690,6 +7752,7 @@ int tcc_run(TCCState *s1, int argc, char **argv)
 {
     Section *s;
     int (*prog_main)(int, char **);
+    void (*bound_init)(void);
     int i;
 
     tcc_add_runtime(s1);
@@ -7736,18 +7799,11 @@ int tcc_run(TCCState *s1, int argc, char **argv)
 
 #ifdef CONFIG_TCC_BCHECK
     if (do_bounds_check) {
-        int *p, *p_end;
-        __bound_init();
-        /* add all known static regions */
-        p = (int *)bounds_section->data;
-        p_end = (int *)bounds_section->data_ptr;
-        while (p < p_end) {
-            __bound_new_region((void *)p[0], p[1]);
-            p += 2;
-        }
+        /* XXX: use .init section so that it also work in binary ? */
+        bound_init = (void *)get_elf_sym_val("__bound_init");
+        bound_init();
     }
 #endif
-
     return (*prog_main)(argc, argv);
 }
 
@@ -7963,6 +8019,14 @@ int tcc_add_library(TCCState *s, const char *libraryname)
     return -1;
 }
 
+int tcc_add_symbol(TCCState *s, const char *name, unsigned long val)
+{
+    add_elf_sym(symtab_section, val, 0, 
+                ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+                SHN_ABS, name);
+    return 0;
+}
+
 int tcc_set_output_type(TCCState *s, int output_type)
 {
     s->output_type = output_type;
@@ -7982,16 +8046,17 @@ int tcc_set_output_type(TCCState *s, int output_type)
 void help(void)
 {
     printf("tcc version 0.9.8 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
-           "usage: tcc [-c] [-o outfile] [-bench] [-Idir] [-Dsym[=val]] [-Usym]\n"
+           "usage: tcc [-c] [-o outfile] [-Bdir] [-bench] [-Idir] [-Dsym[=val]] [-Usym]\n"
            "           [-g] [-b] [-Ldir] [-llib] [-shared] [-static]\n"
            "           [--] infile1 [infile2... --] [infile_args...]\n"
            "\n"
            "General options:\n"
            "  -c          compile only - generate an object file\n"
-           "  -o outfile  set output filename (NOT WORKING YET)\n"
-           "  -bench      output compilation statistics\n"
+           "  -o outfile  set output filename\n"
            "  --          allows multiples input files if no -o option given. Also\n" 
            "              separate input files from runtime arguments\n"
+           "  -Bdir       set tcc internal library path\n"
+           "  -bench      output compilation statistics\n"
            "Preprocessor options:\n"
            "  -Idir       add include path 'dir'\n"
            "  -Dsym[=val] define 'sym' with value 'val'\n"
@@ -8007,7 +8072,7 @@ void help(void)
            "  -Ldir       add library path 'dir'\n"
            "  -llib       link with dynamic library 'lib'\n"
            "  -shared     generate a shared library (NOT WORKING YET)\n"
-           "  -static     static linking (NOT WORKING YET)\n"
+           "  -static     static linking\n"
            );
 }
 
@@ -8058,6 +8123,9 @@ int main(int argc, char **argv)
             tcc_undefine_symbol(s, r + 2);
         } else if (r[1] == 'L') {
             tcc_add_library_path(s, r + 2);
+        } else if (r[1] == 'B') {
+            /* set tcc utilities path (mainly for tcc development) */
+            tcc_lib_path = r + 2;
         } else if (r[1] == 'l') {
             dynarray_add((void ***)&libraries, &nb_libraries, r + 2);
         } else if (!strcmp(r + 1, "bench")) {
@@ -8117,6 +8185,14 @@ int main(int argc, char **argv)
        executable */
     if (outfile && output_type == TCC_OUTPUT_MEMORY)
         output_type = TCC_OUTPUT_EXE;
+    
+    /* warning if not supported features */
+    if (output_type == TCC_OUTPUT_DLL)
+        warning("dll output is currently not supported");
+#ifdef CONFIG_TCC_BCHECK
+    if (do_bounds_check && output_type != TCC_OUTPUT_MEMORY)
+        warning("bounds checking is currently only supported for in-memory execution");
+#endif
     
     tcc_set_output_type(s, output_type);
 
