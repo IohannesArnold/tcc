@@ -51,8 +51,8 @@ typedef struct Sym {
 #define SHF_PRIVATE 0x80000000
 
 typedef struct Section {
-    unsigned char *data;     /* section data */
-    unsigned char *data_ptr; /* current data pointer */
+    unsigned long data_offset; /* current data offset */
+    unsigned char *data;       /* section data */
     int sh_name;             /* elf section name (only used during output) */
     int sh_num;              /* elf section number */
     int sh_type;             /* elf section type */
@@ -170,7 +170,7 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define VT_LVAL_TYPE     (VT_LVAL_BYTE | VT_LVAL_SHORT | VT_LVAL_UNSIGNED)
 
 /* types */
-#define VT_STRUCT_SHIFT 16   /* structure/enum name shift (16 bits left) */
+#define VT_STRUCT_SHIFT 12   /* structure/enum name shift (20 bits left) */
 
 #define VT_INT        0  /* integer type */
 #define VT_BYTE       1  /* signed byte type */
