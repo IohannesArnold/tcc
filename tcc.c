@@ -244,6 +244,22 @@ char *pstrcat(char *buf, int buf_size, const char *s)
     return buf;
 }
 
+static int strstart(const char *str, const char *val, const char **ptr)
+{
+    const char *p, *q;
+    p = str;
+    q = val;
+    while (*q != '\0') {
+        if (*p != *q)
+            return 0;
+        p++;
+        q++;
+    }
+    if (ptr)
+        *ptr = p;
+    return 1;
+}
+
 void *tcc_malloc(unsigned long size)
 {
     void *ptr;
@@ -395,10 +411,12 @@ void put_extern_sym(Sym *sym, Section *section,
     Elf32_Sym *esym;
     const char *name;
 
-    if (section)
-        sh_num = section->sh_num;
-    else
+    if (section == NULL)
         sh_num = SHN_UNDEF;
+    else if (section == SECTION_ABS) 
+        sh_num = SHN_ABS;
+    else
+        sh_num = section->sh_num;
     if (!sym->c) {
         if ((sym->type.t & VT_BTYPE) == VT_FUNC)
             sym_type = STT_FUNC;
@@ -1658,7 +1676,7 @@ static inline Sym *define_find(int v)
 }
 
 /* free define stack until top reaches 'b' */
-static void free_defines(Sym *b)
+void free_defines(Sym *b)
 {
     Sym *top, *top1;
     int v;
@@ -2130,7 +2148,8 @@ static void preprocess(int is_bof)
             /* '!' is ignored to allow C scripts. numbers are ignored
                to emulate cpp behaviour */
         } else {
-            error("invalid preprocessing directive #%s", get_tok_str(tok, &tokc));
+            if (!(saved_parse_flags & PARSE_FLAG_ASM_COMMENTS))
+                error("invalid preprocessing directive #%s", get_tok_str(tok, &tokc));
         }
         break;
     }
@@ -2649,7 +2668,12 @@ static inline void next_nomacro1(void)
                 p++;
                 tok = TOK_TWOSHARPS;
             } else {
-                tok = '#';
+                if (parse_flags & PARSE_FLAG_ASM_COMMENTS) {
+                    p = parse_line_comment(p - 1);
+                    goto redo_no_start;
+                } else {
+                    tok = '#';
+                }
             }
         }
         break;
@@ -3097,7 +3121,6 @@ static int macro_subst_tok(TokenString *tok_str,
     char buf[32];
             
     /* if symbol is a macro, prepare substitution */
-
     /* special macros */
     if (tok == TOK___LINE__) {
         snprintf(buf, sizeof(buf), "%d", file->line_num);
@@ -5027,6 +5050,9 @@ static int is_compatible_func(CType *type1, CType *type2)
     s2 = type2->ref;
     if (!is_compatible_types(&s1->type, &s2->type))
         return 0;
+    /* check func_call */
+    if (s1->r != s2->r)
+        return 0;
     /* XXX: not complete */
     if (s1->c == FUNC_OLD || s2->c == FUNC_OLD)
         return 1;
@@ -5267,7 +5293,8 @@ void vstore(void)
             warning("assignment of read-only location");
     } else {
         delayed_cast = 0;
-        gen_assign_cast(&vtop[-1].type);
+        if (!(ft & VT_BITFIELD))
+            gen_assign_cast(&vtop[-1].type);
     }
 
     if (sbt == VT_STRUCT) {
@@ -5446,6 +5473,20 @@ static void parse_attribute(AttributeDef *ad)
         case TOK_STDCALL3:
             ad->func_call = FUNC_STDCALL;
             break;
+#ifdef TCC_TARGET_I386
+        case TOK_REGPARM1:
+        case TOK_REGPARM2:
+            skip('(');
+            n = expr_const();
+            if (n > 3) 
+                n = 3;
+            else if (n < 0)
+                n = 0;
+            if (n > 0)
+                ad->func_call = FUNC_FASTCALL1 + n - 1;
+            skip(')');
+            break;
+#endif
         default:
             if (tcc_state->warn_unsupported)
                 warning("'%s' attribute ignored", get_tok_str(t, NULL));
@@ -5562,6 +5603,8 @@ static void struct_decl(CType *type, int u)
                                   get_tok_str(v, NULL));
                     }
                     size = type_size(&type1, &align);
+                    if (align < ad.aligned)
+                        align = ad.aligned;
                     lbit_pos = 0;
                     if (bit_size >= 0) {
                         bt = type1.t & VT_BTYPE;
@@ -7710,6 +7753,12 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
                 if (sym->type.t & VT_EXTERN) {
                     /* if the variable is extern, it was not allocated */
                     sym->type.t &= ~VT_EXTERN;
+                    /* set array size if it was ommited in extern
+                       declaration */
+                    if ((sym->type.t & VT_ARRAY) && 
+                        sym->type.ref->c < 0 &&
+                        type->ref->c >= 0)
+                        sym->type.ref->c = type->ref->c;
                 } else {
                     /* we accept several definitions of the same
                        global variable. this is tricky, because we
@@ -7729,6 +7778,8 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
         if (!sec) {
             if (has_init)
                 sec = data_section;
+            else if (tcc_state->nocommon)
+                sec = bss_section;
         }
         if (sec) {
             data_offset = sec->data_offset;
@@ -7747,6 +7798,9 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
             if (sec->sh_type != SHT_NOBITS && 
                 data_offset > sec->data_allocated)
                 section_realloc(sec, data_offset);
+            /* align section if needed */
+            if (align > sec->sh_addralign)
+                sec->sh_addralign = align;
         } else {
             addr = 0; /* avoid warning */
         }
@@ -7942,6 +7996,12 @@ static void decl(int l)
                 next();
                 continue;
             }
+            if (l == VT_CONST &&
+                (tok == TOK_ASM1 || tok == TOK_ASM2 || tok == TOK_ASM3)) {
+                /* global asm block */
+                asm_global_instr();
+                continue;
+            }
             /* special test for old K&R protos without explicit int
                type. Only accepted when defining global data */
             if (l == VT_LOCAL || tok < TOK_DEFINE)
@@ -7979,7 +8039,6 @@ static void decl(int l)
                 ParseState saved_parse_state;
                 int block_level;
 #endif
-
                 if (l == VT_LOCAL)
                     error("cannot use local functions");
                 if (!(type.t & VT_FUNC))
@@ -8034,6 +8093,19 @@ static void decl(int l)
                 funcname = get_tok_str(v, NULL);
                 sym = sym_find(v);
                 if (sym) {
+                    if ((sym->type.t & VT_BTYPE) != VT_FUNC)
+                        goto func_error1;
+                    /* specific case: if not func_call defined, we put
+                       the one of the prototype */
+                    /* XXX: should have default value */
+                    if (sym->type.ref->r != FUNC_CDECL &&
+                        type.ref->r == FUNC_CDECL)
+                        type.ref->r = sym->type.ref->r;
+                    if (!is_compatible_types(&sym->type, &type)) {
+                    func_error1:
+                        error("incompatible types for redefinition of '%s'", 
+                              get_tok_str(v, NULL));
+                    }
                     /* if symbol is already defined, then put complete type */
                     sym->type = type;
                 } else {
@@ -8087,6 +8159,9 @@ static void decl(int l)
                     sym->type.t |= VT_TYPEDEF;
                 } else if ((type.t & VT_BTYPE) == VT_FUNC) {
                     /* external function definition */
+                    /* specific case for func_call attribute */
+                    if (ad.func_call)
+                        type.ref->r = ad.func_call;
                     external_sym(v, &type, 0);
                 } else {
                     /* not lvalue if array */
@@ -8304,6 +8379,10 @@ void tcc_undefine_symbol(TCCState *s1, const char *sym)
 
 #ifndef CONFIG_TCC_ASM
 void asm_instr(void)
+{
+    error("inline asm() not supported");
+}
+void asm_global_instr(void)
 {
     error("inline asm() not supported");
 }
@@ -9092,6 +9171,7 @@ int tcc_set_warning(TCCState *s, const char *warning_name, int value)
 static const FlagDef flag_defs[] = {
     { offsetof(TCCState, char_is_unsigned), 0, "unsigned-char" },
     { offsetof(TCCState, char_is_unsigned), FD_INVERT, "signed-char" },
+    { offsetof(TCCState, nocommon), FD_INVERT, "common" },
 };
 
 /* set/reset a flag */
@@ -9197,6 +9277,7 @@ enum {
     TCC_OPTION_shared,
     TCC_OPTION_o,
     TCC_OPTION_r,
+    TCC_OPTION_Wl,
     TCC_OPTION_W,
     TCC_OPTION_O,
     TCC_OPTION_m,
@@ -9232,6 +9313,7 @@ static const TCCOption tcc_options[] = {
     { "run", TCC_OPTION_run, TCC_OPTION_HAS_ARG | TCC_OPTION_NOSEP },
     { "rdynamic", TCC_OPTION_rdynamic, 0 },
     { "r", TCC_OPTION_r, 0 },
+    { "Wl,", TCC_OPTION_Wl, TCC_OPTION_HAS_ARG | TCC_OPTION_NOSEP },
     { "W", TCC_OPTION_W, TCC_OPTION_HAS_ARG | TCC_OPTION_NOSEP },
     { "O", TCC_OPTION_O, TCC_OPTION_HAS_ARG | TCC_OPTION_NOSEP },
     { "m", TCC_OPTION_m, TCC_OPTION_HAS_ARG },
@@ -9444,6 +9526,17 @@ int parse_args(TCCState *s, int argc, char **argv)
                 break;
             case TCC_OPTION_rdynamic:
                 s->rdynamic = 1;
+                break;
+            case TCC_OPTION_Wl:
+                {
+                    const char *p;
+                    if (strstart(optarg, "-Ttext,", &p)) {
+                        s->text_addr = strtoul(p, NULL, 16);
+                        s->has_text_addr = 1;
+                    } else {
+                        error("unsupported ld option '%s'", optarg);
+                    }
+                }
                 break;
             default:
                 if (s->warn_unsupported) {

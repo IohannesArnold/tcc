@@ -114,12 +114,12 @@ typedef struct DLLReference {
 typedef struct AttributeDef {
     int aligned;
     Section *section;
-    unsigned char func_call; /* FUNC_CDECL or FUNC_STDCALL */
+    unsigned char func_call; /* FUNC_CDECL, FUNC_STDCALL, FUNC_FASTCALLx */
 } AttributeDef;
 
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
-#define SYM_FIRST_ANOM (1 << (31 - VT_STRUCT_SHIFT)) /* first anonymous sym */
+#define SYM_FIRST_ANOM 0x10000000 /* first anonymous sym */
 
 /* stored in 'Sym.c' field */
 #define FUNC_NEW       1 /* ansi function prototype */
@@ -129,6 +129,9 @@ typedef struct AttributeDef {
 /* stored in 'Sym.r' field */
 #define FUNC_CDECL     0 /* standard c call */
 #define FUNC_STDCALL   1 /* pascal c call */
+#define FUNC_FASTCALL1 2 /* first param in %eax */
+#define FUNC_FASTCALL2 3 /* first parameters in %eax, %edx */
+#define FUNC_FASTCALL3 4 /* first parameter in %eax, %edx, %ecx */
 
 /* field 'Sym.t' for macros */
 #define MACRO_OBJ      0 /* object like macro */
@@ -209,10 +212,12 @@ static int parse_flags;
 #define PARSE_FLAG_LINEFEED   0x0004 /* line feed is returned as a
                                         token. line feed is also
                                         returned at eof */
+#define PARSE_FLAG_ASM_COMMENTS 0x0008 /* '#' can be used for line comment */
 
 static Section *text_section, *data_section, *bss_section; /* predefined sections */
 static Section *cur_text_section; /* current section where function code is
                                      generated */
+static Section *last_text_section; /* to handle .previous asm directive */
 /* bound check related sections */
 static Section *bounds_section; /* contains global data bound description */
 static Section *lbounds_section; /* contains local data bound description */
@@ -302,6 +307,8 @@ typedef struct TCCState {
     int nostdinc; /* if true, no standard headers are added */
     int nostdlib; /* if true, no standard libraries are added */
 
+    int nocommon; /* if true, do not use common symbols for .bss data */
+
     /* if true, static linking is performed */
     int static_link;
 
@@ -310,6 +317,10 @@ typedef struct TCCState {
 
     /* if true, only link in referenced objects from archive */
     int alacarte_link;
+
+    /* address of text section */
+    unsigned long text_addr;
+    int has_text_addr;
 
     /* C language options */
     int char_is_unsigned;
@@ -557,10 +568,13 @@ typedef struct ASMOperand {
     char *constraint;
     char asm_str[16]; /* computed asm string for operand */
     SValue *vt; /* C value of the expression */
+    int input_index; /* if >= 0, gives reference to an input constraint */
     int ref_index; /* if >= 0, gives reference to a output constraint */
     int priority; /* priority, used to assign registers */
     int reg; /* if >= 0, register number used for this operand */
     int is_llong; /* true if double register value */
+    int is_memory; /* true if memory operand */
+    int is_rw;     /* for '+' modifier */
 } ASMOperand;
 
 #endif
@@ -582,6 +596,7 @@ void vdup(void);
 int get_reg(int rc);
 int handle_eob(void);
 
+void free_defines(Sym *b);
 void next(void);
 Sym *label_push(Sym **ptop, int v, int flags);
 Sym *label_find(int v);
@@ -625,6 +640,8 @@ void *tcc_mallocz(unsigned long size);
 
 void dynarray_add(void ***ptab, int *nb_ptr, void *data);
  
+#define SECTION_ABS ((void *)1)
+
 static inline int isid(int c)
 {
     return (c >= 'a' && c <= 'z') ||
