@@ -64,7 +64,12 @@ int vstack[VSTACK_SIZE], *vstack_ptr;
 #define VT_STRUCT     (7 << VT_BTYPE_SHIFT)  /* struct/union definition */
 #define VT_FLOAT      (8 << VT_BTYPE_SHIFT)  /* IEEE float */
 #define VT_DOUBLE     (9 << VT_BTYPE_SHIFT)  /* IEEE double */
-#define VT_BOOL      (10 << VT_BTYPE_SHIFT)  /* ISOC99 boolean type */
+#define VT_LDOUBLE   (10 << VT_BTYPE_SHIFT)  /* IEEE long double */
+#define VT_BOOL      (11 << VT_BTYPE_SHIFT)  /* ISOC99 boolean type */
+#define VT_LLONG     (12 << VT_BTYPE_SHIFT)  /* 64 bit integer */
+#define VT_LONG      (13 << VT_BTYPE_SHIFT)  /* long integer (NEVER
+                                                USED as type, only
+                                                during parsing) */
 #define VT_BTYPE      (0xf << VT_BTYPE_SHIFT) /* mask for basic type */
 #define VT_UNSIGNED   (0x10 << VT_BTYPE_SHIFT)  /* unsigned type */
 #define VT_ARRAY      (0x20 << VT_BTYPE_SHIFT)  /* array type (also has VT_PTR) */
@@ -104,6 +109,11 @@ int vstack[VSTACK_SIZE], *vstack_ptr;
 #define TOK_TWOSHARPS 0xb6 /* ## preprocessing token */
 #define TOK_LCHAR 0xb7
 #define TOK_LSTR  0xb8
+#define TOK_CFLOAT   0xb9 /* float constant */
+#define TOK_CDOUBLE  0xc0 /* double constant */
+#define TOK_CLDOUBLE 0xc1 /* long double constant */
+
+
  
 #define TOK_SHL   0x01 /* shift left */
 #define TOK_SAR   0x02 /* signed shift right */

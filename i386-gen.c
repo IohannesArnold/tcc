@@ -1,7 +1,26 @@
+/*
+ *  X86 code generator for TCC
+ * 
+ *  Copyright (c) 2001 Fabrice Bellard
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
 #include "tcc.h"
 #include "i386-gen.h"
 #include <tcclib.h> 
-
 
 void g(int c)
 {
@@ -119,6 +138,9 @@ void load(int r, int ft, int fc)
         } else if ((ft & VT_BTYPE) == VT_DOUBLE) {
             o(0xdd); /* fldl */
             r = 0;
+        } else if ((ft & VT_BTYPE) == VT_LDOUBLE) {
+            o(0xdb); /* fldt */
+            r = 5;
         } else if ((ft & VT_TYPE) == VT_BYTE)
             o(0xbe0f);   /* movsbl */
         else if ((ft & VT_TYPE) == (VT_BYTE | VT_UNSIGNED))
@@ -172,12 +194,16 @@ void store(r, ft, fc)
     fr = ft & VT_VALMASK;
     bt = ft & VT_BTYPE;
     /* XXX: incorrect if reg to reg */
+    /* XXX: should not flush float stack */
     if (bt == VT_FLOAT) {
         o(0xd9); /* fstps */
         r = 3;
     } else if (bt == VT_DOUBLE) {
         o(0xdd); /* fstpl */
         r = 3;
+    } else if (bt == VT_LDOUBLE) {
+        o(0xdb); /* fstpt */
+        r = 7;
     } else {
         if (bt == VT_SHORT)
             o(0x66);
@@ -227,17 +253,24 @@ void gfunc_param(GFuncContext *c)
         vc = fc;
         vstore();
         c->args_size += size;
-    } else if ((vt & VT_BTYPE) == VT_DOUBLE ||
+    } else if ((vt & VT_BTYPE) == VT_LDOUBLE ||
+               (vt & VT_BTYPE) == VT_DOUBLE ||
                (vt & VT_BTYPE) == VT_FLOAT) {
         gv(); /* only one float register */
         if ((vt & VT_BTYPE) == VT_FLOAT)
             size = 4;
-        else
+        else if ((vt & VT_BTYPE) == VT_DOUBLE)
             size = 8;
+        else
+            size = 12;
         oad(0xec81, size); /* sub $xxx, %esp */
-        o(0x245cd9 + size - 4); /* fstp[s|l] 0(%esp) */
+        if (size == 12)
+            o(0x7cdb);
+        else
+            o(0x5cd9 + size - 4); /* fstp[s|l] 0(%esp) */
+        g(0x24);
         g(0x00);
-        c->args_size += 8;
+        c->args_size += size;
     } else {
         /* simple type (currently always same size) */
         /* XXX: implicit cast ? */
@@ -303,6 +336,7 @@ int gtst(int inv, int t)
         if ((vc != 0) != inv) 
             t = gjmp(t);
     } else {
+        /* XXX: floats */
         v = gv();
         o(0x85);
         o(0xc0 + v * 9);
@@ -457,7 +491,7 @@ void gen_opf(int op)
             o(0x05 + a);
             gen_addr32(fc, ft);
         } else if (r == VT_LOCAL) {
-        oad(0x85 + a, fc);
+            oad(0x85 + a, fc);
         } else {
             g(0x00 + a + r);
         }
@@ -470,14 +504,14 @@ void gen_opf(int op)
 void gen_cvtf(int t)
 {
     if ((vt & (VT_BTYPE | VT_UNSIGNED)) == (VT_INT | VT_UNSIGNED)) {
-        /* unsigned int to float/double */
+        /* unsigned int to float/double/long double */
         o(0x6a); /* push $0 */
         g(0x00);
         o(0x50 + (vt & VT_VALMASK)); /* push r */
         o(0x242cdf); /* fildll (%esp) */
         o(0x08c483); /* add $8, %esp */
     } else {
-        /* int to float/double */
+        /* int to float/double/long double */
         o(0x50 + (vt & VT_VALMASK)); /* push r */
         o(0x2404db); /* fildl (%esp) */
         o(0x04c483); /* add $4, %esp */
