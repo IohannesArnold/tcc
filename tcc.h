@@ -53,6 +53,11 @@ typedef struct Reloc {
 #define RELOC_ADDR32 1  /* 32 bits relocation */
 #define RELOC_REL32  2  /* 32 bits relative relocation */
 
+#define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
+#define SYM_FIELD      0x20000000 /* struct/union field symbol space */
+#define SYM_FIRST_ANOM (1 << (31 - VT_STRUCT_SHIFT)) /* first anonymous sym */
+
+
 /* loc : local variable index
    ind : output code index
    rsym: return symbol
@@ -61,6 +66,9 @@ typedef struct Reloc {
 */
 int rsym, anon_sym,
     prog, ind, loc, const_wanted;
+
+int func_vt, func_vc; /* current function return type (used by
+                         return instruction) */
 
 SValue vstack[VSTACK_SIZE], *vtop;
 
