@@ -50,6 +50,15 @@
 /* preprocessor debug */
 //#define PP_DEBUG
 
+/* target selection */
+//#define TCC_TARGET_I386   /* i386 code generator */
+//#define TCC_TARGET_IL     /* .NET CLI generator */
+
+/* default target is I386 */
+#if !defined(TCC_TARGET_I386) && !defined(TCC_TARGET_IL)
+#define TCC_TARGET_I386
+#endif
+
 /* amount of virtual memory associated to a section (currently, we do
    not realloc them) */
 #define SECTION_VSIZE       (1024 * 1024)
@@ -203,6 +212,9 @@ float strtof(const char *nptr, char **endptr)
 extern float strtof (const char *__nptr, char **__endptr);
 extern long double strtold (const char *__nptr, char **__endptr);
 #endif
+
+char *pstrcpy(char *buf, int buf_size, const char *s);
+char *pstrcat(char *buf, int buf_size, const char *s);
 
 void sum(int l);
 void next(void);
@@ -2140,10 +2152,12 @@ void save_reg(int r)
                 sv.r = VT_LOCAL | VT_LVAL;
                 sv.c.ul = loc;
                 store(r, &sv);
-                /* XXX: x86 specific: need to pop fp register ST0 if saved */
+#ifdef TCC_TARGET_I386
+                /* x86 specific: need to pop fp register ST0 if saved */
                 if (r == REG_ST0) {
                     o(0xd9dd); /* fstp %st(1) */
                 }
+#endif
                 /* special long long case */
                 if ((p->t & VT_BTYPE) == VT_LLONG) {
                     sv.c.ul += 4;
@@ -2415,10 +2429,12 @@ void vrotb(int n)
 /* pop stack value */
 void vpop(void)
 {
+#ifdef TCC_TARGET_I386
     /* for x86, we need to pop the FP stack */
     if ((vtop->r & VT_VALMASK) == REG_ST0) {
         o(0xd9dd); /* fstp %st(1) */
     }
+#endif
     vtop--;
 }
 
@@ -2658,10 +2674,15 @@ void gen_opl(int op)
         if (op != TOK_EQ) {
             /* generate non equal test */
             /* XXX: NOT PORTABLE yet */
-            if (a == 0)
+            if (a == 0) {
                 b = gtst(0, 0);
-            else
+            } else {
+#ifdef TCC_TARGET_I386
                 b = psym(0x850f, 0);
+#else
+                error("not implemented");
+#endif
+            }
         }
         /* compare low */
         gen_op(op);
@@ -4623,7 +4644,7 @@ void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_reg)
         a = gtst(1, 0);
         b = 0;
         block(&a, &b, case_sym, def_sym, case_reg);
-        oad(0xe9, d - ind - 5); /* jmp */
+        gjmp_addr(d);
         gsym(a);
         gsym_addr(b, d);
     } else if (tok == '{') {
@@ -4697,12 +4718,12 @@ void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_reg)
             c = ind;
             gexpr();
             vpop();
-            oad(0xe9, d - ind - 5); /* jmp */
+            gjmp_addr(d);
             gsym(e);
         }
         skip(')');
         block(&a, &b, case_sym, def_sym, case_reg);
-        oad(0xe9, c - ind - 5); /* jmp */
+        gjmp_addr(c);
         gsym(a);
         gsym_addr(b, c);
     } else 
@@ -4793,9 +4814,9 @@ void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_reg)
             s = sym_push1(&label_stack, tok, VT_FORWARD, 0);
         /* label already defined */
         if (s->t & VT_FORWARD) 
-            s->c = gjmp(s->c); /* jmp xxx */
+            s->c = gjmp(s->c);
         else
-            oad(0xe9, s->c - ind - 5); /* jmp xxx */
+            gjmp_addr(s->c);
         next();
         skip(';');
     } else {
@@ -5194,8 +5215,15 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
         if (do_bounds_check && (t & VT_ARRAY)) 
             loc--;
 #endif
+#ifdef TCC_TARGET_IL
+        /* XXX: ugly patch to allocate local variables for IL, just
+           for testing */
+        addr = loc;
+        loc++;
+#else
         loc = (loc - size) & -align;
         addr = loc;
+#endif
         /* handles bounds */
         /* XXX: currently, since we do only one pass, we cannot track
            '&' operators, so we add only arrays */
