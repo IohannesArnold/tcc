@@ -213,6 +213,7 @@ int rsym, anon_sym,
 
 /* expression generation modifiers */
 int const_wanted; /* true if constant wanted */
+int nocode_wanted; /* true if no code generation wanted for an expression */
 int global_expr;  /* true if compound literals must be allocated
                      globally (used during initializers parsing */
 int func_vt, func_vc; /* current function return type (used by
@@ -415,78 +416,14 @@ static char tok_two_chars[] = "<=\236>=\235!=\225&&\240||\241++\244--\242==\224<
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
 
-
 enum {
-    TOK_INT = TOK_IDENT,
-    TOK_VOID,
-    TOK_CHAR,
-    TOK_IF,
-    TOK_ELSE,
-    TOK_WHILE,
-    TOK_BREAK,
-    TOK_RETURN,
-    TOK_FOR,
-    TOK_EXTERN,
-    TOK_STATIC,
-    TOK_UNSIGNED,
-    TOK_GOTO,
-    TOK_DO,
-    TOK_CONTINUE,
-    TOK_SWITCH,
-    TOK_CASE,
-
-    /* ignored types Must have contiguous values */
-    TOK_CONST,
-    TOK_VOLATILE,
-    TOK_LONG,
-    TOK_REGISTER,
-    TOK_SIGNED,
-    TOK___SIGNED__, /* gcc keyword */
-    TOK_AUTO,
-    TOK_INLINE,
-    TOK___INLINE__, /* gcc keyword */
-    TOK_RESTRICT,
-
-    /* unsupported type */
-    TOK_FLOAT,
-    TOK_DOUBLE,
-    TOK_BOOL,
-
-    TOK_SHORT,
-    TOK_STRUCT,
-    TOK_UNION,
-    TOK_TYPEDEF,
-    TOK_DEFAULT,
-    TOK_ENUM,
-    TOK_SIZEOF,
-    TOK___ATTRIBUTE__,
-    
-    /* preprocessor only */
-    TOK_UIDENT, /* first "user" ident (not keyword) */
-    TOK_DEFINE = TOK_UIDENT,
-    TOK_INCLUDE,
-    TOK_IFDEF,
-    TOK_IFNDEF,
-    TOK_ELIF,
-    TOK_ENDIF,
-    TOK_DEFINED,
-    TOK_UNDEF,
-    TOK_ERROR,
-    TOK_LINE,
-
+    TOK_LAST = TOK_IDENT - 1,
 #define DEF(id, str) id,
 #include "tcctok.h"
 #undef DEF
 };
 
 void cinp(void);
-void sum(int l);
-void next(void);
-void next_nomacro(void);
-static int expr_const(void);
-void expr_eq(void);
-void gexpr(void);
-void decl(int l);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
@@ -531,7 +468,6 @@ Sym *external_global_sym(int v, int u, int r);
 
 #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
 #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
-static int tcc_add_file_internal(TCCState *s, const char *filename, int flags);
 
 void *tcc_malloc(unsigned long size);
 void *tcc_mallocz(unsigned long size);
