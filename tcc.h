@@ -305,6 +305,9 @@ typedef struct TCCState {
     /* if true, static linking is performed */
     int static_link;
 
+    /* if true, only link in referenced objects from archive */
+    int alacarte_link;
+
     /* warning switches */
     int warn_write_strings;
     int warn_unsupported;

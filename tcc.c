@@ -8555,6 +8555,7 @@ TCCState *tcc_new(void)
     s->dynsymtab_section = new_symtab(s, ".dynsymtab", SHT_SYMTAB, SHF_PRIVATE,
                                       ".dynstrtab", 
                                       ".dynhashtab", SHF_PRIVATE);
+    s->alacarte_link = 1;
     return s;
 }
 
