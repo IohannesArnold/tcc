@@ -344,7 +344,7 @@ void gfunc_prolog(int t)
     o(0xe58955); /* push   %ebp, mov    %esp, %ebp */
     func_sub_sp_ptr = (int *)oad(0xec81, 0); /* sub $xxx, %esp */
     /* leave some room for bound checking code */
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
     if (do_bounds_check) {
         oad(0xb8, 0); /* lbound section pointer */
         oad(0xb8, 0); /* call to function */
@@ -356,7 +356,7 @@ void gfunc_prolog(int t)
 /* generate function epilog */
 void gfunc_epilog(void)
 {
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
     if (do_bounds_check && func_bound_ptr != lbounds_section->data_ptr) {
         int saved_ind;
         int *bounds_ptr;
@@ -764,9 +764,8 @@ void gen_cvt_ftof(int t)
 }
 
 /* bound check support functions */
-
+#ifdef CONFIG_TCC_BCHECK
 /* generate first part of bounded pointer addition */
-#ifdef ENABLE_BOUNDS_CHECK
 void gen_bounded_ptr_add1(void)
 {
     /* prepare fast i386 function call (args in eax and edx) */

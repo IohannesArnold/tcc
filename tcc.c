@@ -156,7 +156,7 @@ int char_pointer_type;
 int do_debug = 0;
 #endif
 
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
 /* compile with built-in memory and bounds checker */
 int do_bounds_check = 0;
 #endif
@@ -198,6 +198,9 @@ char *tcc_keywords =
 
 #ifdef WIN32
 #define snprintf _snprintf
+#endif
+
+#if defined(WIN32) || defined(TCC_UCLIBC)
 /* currently incorrect */
 long double strtold(const char *nptr, char **endptr)
 {
@@ -524,10 +527,14 @@ static inline int toup(int c)
 void printline(void)
 {
     BufferedFile **f;
-    for(f = include_stack; f < include_stack_ptr; f++)
-        fprintf(stderr, "In file included from %s:%d:\n", 
-                (*f)->filename, (*f)->line_num);
-    fprintf(stderr, "%s:%d: ", file->filename, file->line_num);
+    if (file) {
+        for(f = include_stack; f < include_stack_ptr; f++)
+            fprintf(stderr, "In file included from %s:%d:\n", 
+                    (*f)->filename, (*f)->line_num);
+        fprintf(stderr, "%s:%d: ", file->filename, file->line_num);
+    } else {
+        fprintf(stderr, "tcc: ");
+    }
 }
 
 void error(const char *fmt, ...)
@@ -2247,6 +2254,7 @@ void gaddrof(void)
         vtop->r = (vtop->r & ~VT_VALMASK) | VT_LOCAL | VT_LVAL;
 }
 
+#ifdef CONFIG_TCC_BCHECK
 /* generate lvalue bound code */
 void gbound(void)
 {
@@ -2255,13 +2263,14 @@ void gbound(void)
     if (vtop->r & VT_LVAL) {
         gaddrof();
         vpushi(0);
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         gen_bounded_ptr_add1();
         gen_bounded_ptr_add2(1);
 #endif
         vtop->r |= VT_LVAL;
     }
 }
+#endif
 
 /* store vtop a register belonging to class 'rc'. lvalues are
    converted to values. Cannot be used if cannot be converted to
@@ -2301,8 +2310,10 @@ int gv(int rc)
             data_offset += size << 2;
             data_section->data_ptr = (unsigned char *)data_offset;
         }
+#ifdef CONFIG_TCC_BCHECK
         if (vtop->r & VT_MUSTBOUND) 
             gbound();
+#endif
 
         r = vtop->r & VT_VALMASK;
         /* need to reload if:
@@ -2860,7 +2871,7 @@ void gen_op(int op)
             /* XXX: cast to int ? (long long case) */
             vpushi(pointed_size(vtop[-1].t));
             gen_op('*');
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
             /* if evaluating constant expression, no code should be
                generated, so no bound check */
             if (do_bounds_check && !const_wanted) {
@@ -3481,12 +3492,14 @@ void vstore(void)
         /* store result */
         vstore();
     } else {
+#ifdef CONFIG_TCC_BCHECK
         /* bound check case */
         if (vtop[-1].r & VT_MUSTBOUND) {
             vswap();
             gbound();
             vswap();
         }
+#endif
         rc = RC_INT;
         if (is_float(ft))
             rc = RC_FLOAT;
@@ -4056,7 +4069,7 @@ void indir(void)
     if (!(vtop->t & VT_ARRAY)) {
         vtop->r |= VT_LVAL;
         /* if bound checking, the referenced pointer must be checked */
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         if (do_bounds_check) 
             vtop->r |= VT_MUSTBOUND;
 #endif
@@ -5211,7 +5224,7 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
     if (ad->aligned > align)
         align = ad->aligned;
     if ((r & VT_VALMASK) == VT_LOCAL) {
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         if (do_bounds_check && (t & VT_ARRAY)) 
             loc--;
 #endif
@@ -5227,7 +5240,7 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
         /* handles bounds */
         /* XXX: currently, since we do only one pass, we cannot track
            '&' operators, so we add only arrays */
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         if (do_bounds_check && (t & VT_ARRAY)) {
             int *bounds_ptr;
             /* add padding between regions */
@@ -5257,7 +5270,7 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
            initializers */
         data_offset += size;
         /* handles bounds */
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         if (do_bounds_check) {
             int *bounds_ptr;
             /* first, we need to add at least one byte between each region */
@@ -5606,9 +5619,9 @@ void open_dll(char *libname)
 
 static void *resolve_sym(const char *sym)
 {
-    void *ptr;
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
     if (do_bounds_check) {
+        void *ptr;
         ptr = bound_resolve_sym(sym);
         if (ptr)
             return ptr;
@@ -6025,11 +6038,8 @@ int launch_exe(int argc, char **argv)
     }
 #endif
 
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
     if (do_bounds_check) {
-#ifdef WIN32
-        error("bound checking currently not available for Windows");
-#else
         int *p, *p_end;
         __bound_init();
         /* add all known static regions */
@@ -6039,7 +6049,6 @@ int launch_exe(int argc, char **argv)
             __bound_new_region((void *)p[0], p[1]);
             p += 2;
         }
-#endif
     }
 #endif
 
@@ -6050,7 +6059,7 @@ int launch_exe(int argc, char **argv)
 
 void help(void)
 {
-    printf("tcc version 0.9.4 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
+    printf("tcc version 0.9.5 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
            "usage: tcc [-Idir] [-Dsym[=val]] [-Usym] [-llib] [-g] [-b]\n"
            "           [-i infile] infile [infile_args...]\n"
            "\n"
@@ -6061,7 +6070,7 @@ void help(void)
 #ifdef ENABLE_DEBUG
            "-g           : generate runtime debug info\n"
 #endif
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
            "-b           : compile with built-in memory and bounds checker (implies -g)\n"
 #endif
            "-i infile    : compile infile\n"
@@ -6130,7 +6139,7 @@ int main(int argc, char **argv)
             tcc_compile_file(argv[optind++]);
         } else if (!strcmp(r + 1, "bench")) {
             do_bench = 1;
-#ifdef ENABLE_BOUNDS_CHECK
+#ifdef CONFIG_TCC_BCHECK
         } else if (r[1] == 'b') {
             if (!do_bounds_check) {
                 do_bounds_check = 1;
@@ -6175,8 +6184,7 @@ int main(int argc, char **argv)
                 goto show_help;
             outfile = argv[optind++];
         } else {
-            fprintf(stderr, "invalid option -- '%s'\n", r);
-            exit(1);
+            error("invalid option -- '%s'", r);
         }
     }
     
