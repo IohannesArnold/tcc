@@ -240,7 +240,7 @@ void *dlsym(void *handle, const char *symbol)
 
 /* we use our own 'finite' function to avoid potential problems with
    non standard math libs */
-/* XXX: endianness dependant */
+/* XXX: endianness dependent */
 int ieee_finite(double d)
 {
     int *p = (int *)&d;
@@ -585,7 +585,7 @@ void error(const char *fmt, ...)
     if (s1->error_set_jmp_enabled) {
         longjmp(s1->error_jmp_buf, 1);
     } else {
-        /* XXX: suppress it someday */
+        /* XXX: eliminate this someday */
         exit(1);
     }
 }
@@ -1377,7 +1377,7 @@ void restore_parse_state(ParseState *s)
     tokc = s->tokc;
 }
 
-/* return the number of additionnal 'ints' necessary to store the
+/* return the number of additional 'ints' necessary to store the
    token */
 static inline int tok_ext_size(int t)
 {
@@ -3189,7 +3189,7 @@ static inline int *macro_twosharps(const int *macro_str)
         tok_str_add2(&macro_str1, t, &cval);
     }
     saved_macro_ptr = macro_ptr;
-    /* XXX: suppress the use of macro_ptr here */
+    /* XXX: get rid of the use of macro_ptr here */
     macro_ptr = (int *)macro_str;
     for(;;) {
         while (*macro_ptr == TOK_TWOSHARPS) {
@@ -3585,7 +3585,7 @@ void save_reg(int r)
             }
             /* mark that stack entry as being saved on the stack */
             if (p->r & VT_LVAL) {
-                /* also suppress the bounded flag because the
+                /* also clear the bounded flag because the
                    relocation address of the function was stored in
                    p->c.ul */
                 p->r = (p->r & ~(VT_VALMASK | VT_BOUNDED)) | VT_LLOCAL;
@@ -4181,7 +4181,7 @@ void gen_opl(int op)
 }
 
 /* handle integer constant optimizations and various machine
-   independant opt */
+   independent opt */
 void gen_opic(int op)
 {
     int fc, c1, c2, n;
@@ -4692,7 +4692,7 @@ static void gen_cast(CType *type)
                 gen_cvt_ftoi1(dbt);
             }
             if (dbt == VT_INT && (type->t & (VT_BTYPE | VT_UNSIGNED)) != dbt) {
-                /* additionnal cast for char/short/bool... */
+                /* additional cast for char/short/bool... */
                 vtop->type.t = dbt;
                 gen_cast(type);
             }
@@ -4705,7 +4705,7 @@ static void gen_cast(CType *type)
                     else
                         vtop->c.ll = vtop->c.i;
                 } else {
-                    /* machine independant conversion */
+                    /* machine independent conversion */
                     gv(RC_INT);
                     /* generate high word */
                     if (sbt == (VT_INT | VT_UNSIGNED)) {
@@ -6312,7 +6312,7 @@ static void expr_or(void)
     }
 }
 
-/* XXX: suppress this mess */
+/* XXX: fix this mess */
 static void expr_land_const(void)
 {
     expr_or();
@@ -6323,7 +6323,7 @@ static void expr_land_const(void)
     }
 }
 
-/* XXX: suppress this mess */
+/* XXX: fix this mess */
 static void expr_lor_const(void)
 {
     expr_land_const();
@@ -6947,7 +6947,7 @@ static void decl_designator(CType *type, Section *sec, unsigned long c,
                 expect("field");
             if (!notfirst)
                 *cur_field = f;
-            /* XXX: suppress this mess by using explicit storage field */
+            /* XXX: fix this mess by using explicit storage field */
             type1 = f->type;
             type1.t |= (type->t & ~VT_TYPE);
             type = &type1;
@@ -6971,7 +6971,7 @@ static void decl_designator(CType *type, Section *sec, unsigned long c,
             f = *cur_field;
             if (!f)
                 error("too many field init");
-            /* XXX: suppress this mess by using explicit storage field */
+            /* XXX: fix this mess by using explicit storage field */
             type1 = f->type;
             type1.t |= (type->t & ~VT_TYPE);
             type = &type1;

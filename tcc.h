@@ -197,7 +197,7 @@ static struct BufferedFile *file;
 static int ch, tok;
 static CValue tokc;
 static CString tokcstr; /* current parsed string, if any */
-/* additionnal informations about token */
+/* additional informations about token */
 static int tok_flags;
 #define TOK_FLAG_BOL   0x0001 /* beginning of line before */
 #define TOK_FLAG_BOF   0x0002 /* beginning of file before */
@@ -258,7 +258,7 @@ static CType char_pointer_type, func_old_type, int_type;
 /* true if isid(c) || isnum(c) */
 static unsigned char isidnum_table[256];
 
-/* XXX: suppress that ASAP */
+/* XXX: get rid of this ASAP */
 static struct TCCState *tcc_state;
 
 /* give the path of the tcc libraries */
