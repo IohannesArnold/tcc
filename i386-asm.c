@@ -750,7 +750,14 @@ static inline int constraint_priority(const char *str)
     return priority;
 }
 
-void asm_compute_constraints(char *regs_allocated,
+static const char *skip_constraint_modifiers(const char *p)
+{
+    while (*p == '=' || *p == '&' || *p == '+' || *p == '%')
+        p++;
+    return p;
+}
+
+void asm_compute_constraints(uint8_t *regs_allocated,
                                     ASMOperand *operands, 
                                     int nb_operands1, int nb_outputs, 
                                     int is_output,
@@ -777,6 +784,7 @@ void asm_compute_constraints(char *regs_allocated,
         str = op->constraint;
         op->ref_index = -1;
         op->reg = -1;
+        str = skip_constraint_modifiers(str);
         if (!is_output && (isnum(*str) || *str == '[')) {
             /* this is a reference to another constraint */
             k = find_constraint(operands, nb_operands1, str, NULL);
@@ -785,9 +793,8 @@ void asm_compute_constraints(char *regs_allocated,
                       j, str);
             op->ref_index = k;
             str = operands[k].constraint;
+            str = skip_constraint_modifiers(str);
         }
-        while (*str == '=' || *str == '&' || *str == '+')
-            str++;
         op->priority = constraint_priority(str);
     }
     
@@ -820,8 +827,7 @@ void asm_compute_constraints(char *regs_allocated,
             str = operands[op->ref_index].constraint;
         }
 
-        while (*str == '=' || *str == '&' || *str == '+')
-            str++;
+        str = skip_constraint_modifiers(str);
     try_next:
         c = *str++;
         switch(c) {
