@@ -1,5 +1,11 @@
 #define VSTACK_SIZE         64
 
+/* value on stack */
+typedef struct SValue {
+    int t;
+    int c;
+} SValue;
+
 /* symbol management */
 typedef struct Sym {
     int v;    /* symbol token */
@@ -28,9 +34,9 @@ typedef struct Reloc {
    anon_sym: anonymous symbol index
 */
 int rsym, anon_sym,
-    prog, ind, loc, glo, vt, vc, const_wanted, line_num;
+    prog, ind, loc, glo, const_wanted;
 
-int vstack[VSTACK_SIZE], *vstack_ptr;
+SValue vstack[VSTACK_SIZE], *vtop;
 
 /* The current value can be: */
 #define VT_VALMASK 0x000f
