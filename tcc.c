@@ -350,12 +350,6 @@ static inline Sym *sym_malloc(void)
     return sym;
 }
 
-static inline void sym_free(Sym *sym)
-{
-    sym->next = sym_free_first;
-    sym_free_first = sym;
-}
-
 Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags)
 {
     Section *sec;

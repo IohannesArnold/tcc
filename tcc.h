@@ -721,3 +721,9 @@ static inline void *tcc_realloc(void *ptr, unsigned long size)
     return ptr1;
 }
 
+static inline void sym_free(Sym *sym)
+{
+    sym->next = sym_free_first;
+    sym_free_first = sym;
+}
+
