@@ -20,6 +20,7 @@
 /* token symbol management */
 typedef struct TokenSym {
     struct TokenSym *hash_next;
+    struct Sym *sym_define; /* direct pointer to define */
     int tok; /* token number */
     int len;
     char str[1];
@@ -31,6 +32,13 @@ typedef struct CString {
     int size_allocated;
     void *data_allocated; /* if non NULL, data has been malloced */
 } CString;
+
+
+/* type definition */
+typedef struct CType {
+    int t;
+    struct Sym *ref;
+} CType;
 
 /* constant value */
 typedef union CValue {
@@ -49,7 +57,7 @@ typedef union CValue {
 
 /* value on stack */
 typedef struct SValue {
-    int t;      /* type */
+    CType type;            /* type */
     unsigned short r;      /* register + flags */
     unsigned short r2;     /* second register, used for 'long long'
                               type. If not used, set to VT_CONST */
@@ -60,9 +68,9 @@ typedef struct SValue {
 /* symbol management */
 typedef struct Sym {
     int v;    /* symbol token */
-    int t;    /* associated type */
     int r;    /* associated register */
     int c;    /* associated number */
+    CType type;    /* associated type */
     struct Sym *next; /* next related symbol */
     struct Sym *prev; /* prev symbol in stack */
     struct Sym *hash_next; /* next symbol in hash table */
@@ -216,20 +224,22 @@ int const_wanted; /* true if constant wanted */
 int nocode_wanted; /* true if no code generation wanted for an expression */
 int global_expr;  /* true if compound literals must be allocated
                      globally (used during initializers parsing */
-int func_vt, func_vc; /* current function return type (used by
-                         return instruction) */
+CType func_vt; /* current function return type (used by return
+                instruction) */
+int func_vc;
 int last_line_num, last_ind, func_ind; /* debug last line number and pc */
 int tok_ident;
 TokenSym **table_ident;
 TokenSym *hash_ident[TOK_HASH_SIZE];
 char token_buf[STRING_MAX_SIZE + 1];
 char *funcname;
-SymStack define_stack, global_stack, local_stack, label_stack;
+SymStack global_stack, local_stack, label_stack;
+Sym *define_stack;
 
 SValue vstack[VSTACK_SIZE], *vtop;
 int *macro_ptr, *macro_ptr_allocated;
-int char_pointer_type;
-int func_old_type;
+/* some predefined types */
+CType char_pointer_type, func_old_type, int_type;
 
 /* XXX: suppress that ASAP */
 static struct TCCState *tcc_state;
@@ -437,24 +447,24 @@ int get_reg(int rc);
 int save_reg_forced(int r);
 void gen_op(int op);
 void force_charshort_cast(int t);
-void gen_cast(int t);
+static void gen_cast(CType *type);
 void vstore(void);
 Sym *sym_find(int v);
-Sym *sym_push(int v, int t, int r, int c);
+Sym *sym_push(int v, CType *type, int r, int c);
 
 /* type handling */
-int type_size(int t, int *a);
-int pointed_type(int t);
-int pointed_size(int t);
-int is_compatible_types(int t1, int t2);
-int parse_btype(int *type_ptr, AttributeDef *ad);
-int type_decl(AttributeDef *ad, int *v, int t, int td);
+int type_size(CType *type, int *a);
+static inline CType *pointed_type(CType *type);
+static int pointed_size(CType *type);
+static int is_compatible_types(CType *type1, CType *type2);
+static int parse_btype(CType *type, AttributeDef *ad);
+static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
 
 void error(const char *fmt, ...);
 void vpushi(int v);
-void vset(int t, int r, int v);
+void vset(CType *type, int r, int v);
 void type_to_str(char *buf, int buf_size, 
-                 int t, const char *varstr);
+                 CType *type, const char *varstr);
 char *get_tok_str(int v, CValue *cv);
 
 /* section generation */
@@ -462,8 +472,8 @@ void section_realloc(Section *sec, unsigned long new_size);
 void *section_ptr_add(Section *sec, unsigned long size);
 void greloc(Section *s, Sym *sym, unsigned long addr, int type);
 int tcc_add_dll(TCCState *s, const char *filename, int flags);
-Sym *external_sym(int v, int u, int r);
-Sym *external_global_sym(int v, int u, int r);
+Sym *external_sym(int v, CType *type, int r);
+Sym *external_global_sym(int v, CType *type, int r);
 
 #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
 #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
