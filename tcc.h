@@ -534,7 +534,7 @@ static char tok_two_chars[] = "<=\236>=\235!=\225&&\240||\241++\244--\242==\224<
 
 #define TOK_ASM_int TOK_INT
 
-enum {
+enum tcc_token {
     TOK_LAST = TOK_IDENT - 1,
 #define DEF(id, str) id,
 #include "tcctok.h"
