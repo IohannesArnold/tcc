@@ -448,9 +448,10 @@ int expr_const(void);
 void expr_eq(void);
 void gexpr(void);
 void decl(int l);
-void decl_initializer(int t, Section *sec, unsigned long c, int first, int size_only);
-void decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init,
-                            int v, int scope);
+static void decl_initializer(int t, Section *sec, unsigned long c, 
+                             int first, int size_only);
+static void decl_initializer_alloc(int t, AttributeDef *ad, int r, 
+                                   int has_init, int v, int scope);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
@@ -503,18 +504,6 @@ void *tcc_mallocz(unsigned long size);
 
 void dynarray_add(void ***ptab, int *nb_ptr, void *data);
  
-/* reserve at least 'size' bytes in section 'sec' from
-   sec->data_offset. Optimized for speed */
-static inline void *section_ptr(Section *sec, unsigned long size)
-{
-    unsigned long offset, offset1;
-    offset = sec->data_offset;
-    offset1 = offset + size;
-    if (offset1 > sec->data_allocated)
-        section_realloc(sec, offset1);
-    return sec->data + offset;
-}
-
 static inline int isid(int c)
 {
     return (c >= 'a' && c <= 'z') ||
