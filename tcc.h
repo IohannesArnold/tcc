@@ -83,8 +83,8 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define VT_JMPI     0x00f5  /* value is the consequence of jmp false (odd) */
 #define VT_LVAL     0x0100  /* var is an lvalue */
 #define VT_FORWARD  0x0200  /* value is forward reference */
-#define VT_MUSTCAST 0x0400  /* value must be casted to be correct (user for
-                               bool/char/short stored in int registers) */
+#define VT_MUSTCAST 0x0400  /* value must be casted to be correct (used for
+                               char/short stored in integer registers) */
 
 /* types */
 #define VT_STRUCT_SHIFT 16   /* structure/enum name shift (16 bits left) */

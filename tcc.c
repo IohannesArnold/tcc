@@ -36,6 +36,7 @@
 #include <sys/mman.h>
 #include <elf.h>
 #include <stab.h>
+#include <malloc.h>
 #ifndef CONFIG_TCC_STATIC
 #include <dlfcn.h>
 #endif
@@ -154,7 +155,7 @@ int gnu_ext = 1;
 
 /* use Tiny C extensions */
 int tcc_ext = 1;
-  
+
 int reg_classes[NB_REGS] = {
     /* eax */ RC_INT | RC_IRET,
     /* ecx */ RC_INT | RC_ECX,
@@ -2095,6 +2096,15 @@ void move_reg(int r, int s)
     }
 }
 
+/* get address of vtop (vtop MUST BE an lvalue) */
+void gaddrof(void)
+{
+    vtop->r &= ~VT_LVAL;
+    /* tricky: if saved lvalue, then we can go back to lvalue */
+    if ((vtop->r & VT_VALMASK) == VT_LLOCAL)
+        vtop->r = (vtop->r & ~VT_VALMASK) | VT_LOCAL | VT_LVAL;
+}
+
 /* store vtop a register belonging to class 'rc'. lvalues are
    converted to values. Cannot be used if cannot be converted to
    register value (such as structures). */
@@ -2162,7 +2172,7 @@ int gv(int rc)
                     vtop[-1].r = r; /* save register value */
                     /* increment pointer to get second word */
                     vtop->t = VT_INT;
-                    vtop->r &= ~VT_LVAL;
+                    gaddrof();
                     vpushi(4);
                     gen_op('+');
                     vtop->r |= VT_LVAL;
@@ -3224,12 +3234,12 @@ void vstore(void)
         gfunc_param(&gf);
         /* source */
         vtop->t = VT_INT;
-        vtop->r &= ~VT_LVAL;
+        gaddrof();
         gfunc_param(&gf);
         /* destination */
         vswap();
         vtop->t = VT_INT;
-        vtop->r &= ~VT_LVAL;
+        gaddrof();
         gfunc_param(&gf);
 
         save_regs();
@@ -3280,7 +3290,7 @@ void vstore(void)
             vswap();
             /* convert to int to increment easily */
             vtop->t = VT_INT;
-            vtop->r &= ~VT_LVAL;
+            gaddrof();
             vpushi(4);
             gen_op('+');
             vtop->r |= VT_LVAL;
@@ -3918,7 +3928,7 @@ void unary(void)
             if ((vtop->t & VT_BTYPE) != VT_FUNC)
                 test_lvalue();
             vtop->t = mk_pointer(vtop->t);
-            vtop->r &= ~VT_LVAL;
+            gaddrof();
         } else
         if (t == '!') {
             unary();
@@ -3994,7 +4004,7 @@ void unary(void)
             if (tok == TOK_ARROW) 
                 indir();
             test_lvalue();
-            vtop->r &= ~VT_LVAL;
+            gaddrof();
             next();
             /* expect pointer on structure */
             if ((vtop->t & VT_BTYPE) != VT_STRUCT)
@@ -5441,6 +5451,10 @@ static void put_stabd(int type, int other, int desc)
 }
 
 /* output an ELF file (currently, only for testing) */
+/* XXX: better program header generation */
+/* XXX: handle realloc'ed sections (instead of mmaping them) */
+/* XXX: generate dynamic reloc info + DLL tables */
+/* XXX: generate startup code */
 void build_exe(char *filename)
 { 
     Elf32_Ehdr ehdr;
@@ -5647,7 +5661,7 @@ static void rt_printline(unsigned long wanted_pc)
         sym++;
     }
     /* did not find line number info: */
-    fprintf(stderr, "(no debug info, pc=0x%08lx) ", wanted_pc);
+    fprintf(stderr, "(no debug info, pc=0x%08lx): ", wanted_pc);
     return;
  found:
     for(i = 0; i < incl_index - 1; i++)
@@ -5701,7 +5715,7 @@ static void sig_error(int signum, siginfo_t *siginf, void *puc)
         fprintf(stderr, "abort() called\n");
         break;
     default:
-        fprintf(stderr, "signal %d\n", signum);
+        fprintf(stderr, "caught signal %d\n", signum);
         break;
     }
     exit(255);
@@ -5764,7 +5778,7 @@ void help(void)
            "-Usym        : undefine 'sym'\n"
            "-llib        : link with dynamic library 'lib'\n"
 #ifdef ENABLE_DEBUG
-           "-g           : generate debug info\n"
+           "-g           : generate runtime debug info\n"
 #endif
 #ifdef ENABLE_BOUNDS_CHECK
            "-b           : compile with built-in memory and bounds checker (implies -g)\n"
