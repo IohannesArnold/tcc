@@ -462,10 +462,6 @@ static int expr_const(void);
 void expr_eq(void);
 void gexpr(void);
 void decl(int l);
-static void decl_initializer(int t, Section *sec, unsigned long c, 
-                             int first, int size_only);
-static void decl_initializer_alloc(int t, AttributeDef *ad, int r, 
-                                   int has_init, int v, int scope);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
@@ -476,8 +472,6 @@ void vswap(void);
 void vdup(void);
 int get_reg(int rc);
 
-void macro_subst(TokenString *tok_str, 
-                 Sym **nested_list, int *macro_str);
 int save_reg_forced(int r);
 void gen_op(int op);
 void force_charshort_cast(int t);
