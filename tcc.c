@@ -971,7 +971,7 @@ BufferedFile *tcc_open(TCCState *s1, const char *filename)
     bf->buf_end = bf->buffer;
     bf->buffer[0] = CH_EOB; /* put eob symbol */
     pstrcpy(bf->filename, sizeof(bf->filename), filename);
-    bf->line_num = 0;
+    bf->line_num = 1;
     bf->ifndef_macro = 0;
     bf->ifdef_stack_ptr = s1->ifdef_stack_ptr;
     //    printf("opening '%s'\n", filename);
@@ -985,8 +985,8 @@ void tcc_close(BufferedFile *bf)
     tcc_free(bf);
 }
 
-/* fill input buffer and return next char */
-int tcc_getc_slow(BufferedFile *bf)
+/* fill input buffer and peek next char */
+static int tcc_peekc_slow(BufferedFile *bf)
 {
     int len;
     /* only tries to read if really end of buffer */
@@ -1004,7 +1004,7 @@ int tcc_getc_slow(BufferedFile *bf)
         *bf->buf_end = CH_EOB;
     }
     if (bf->buf_ptr < bf->buf_end) {
-        return *bf->buf_ptr++;
+        return bf->buf_ptr[0];
     } else {
         bf->buf_ptr = bf->buf_end;
         return CH_EOF;
@@ -1015,9 +1015,9 @@ int tcc_getc_slow(BufferedFile *bf)
 void handle_eob(void)
 {
     /* no need to do anything if not at EOB */
-    if (file->buf_ptr <= file->buf_end)
+    if (file->buf_ptr < file->buf_end)
         return;
-    ch = tcc_getc_slow(file);
+    ch = tcc_peekc_slow(file);
 }
 
 /* handle '\[\r]\n' */
@@ -1057,51 +1057,87 @@ static void parse_line_comment(void)
     /* single line C++ comments */
     /* XXX: accept '\\\n' ? */
     inp();
-    while (ch != '\n' && ch != TOK_EOF)
+    while (ch != '\n' && ch != CH_EOF)
         inp();
 }
 
 void parse_comment(void)
 {
+    uint8_t *p;
+    int c;
+    
     /* C comments */
     minp();
+    p = file->buf_ptr;
     for(;;) {
         /* fast skip loop */
-        while (ch != '\n' && ch != '*' && ch != TOK_EOF)
-            inp();
+        for(;;) {
+            c = *p;
+            if (c == '\n' || c == '*' || c == '\\')
+                break;
+            p++;
+            c = *p;
+            if (c == '\n' || c == '*' || c == '\\')
+                break;
+            p++;
+        }
         /* now we can handle all the cases */
-        if (ch == '\n') {
+        if (c == '\n') {
             file->line_num++;
-            inp();
-        } else if (ch == '*') {
+            p++;
+        } else if (c == '*') {
+            p++;
             for(;;) {
-                inp();
-                if (ch == '/') {
+                c = *p;
+                if (c == '/') {
                     goto end_of_comment;
-                } else if (ch == '\\') {
-                    inp();
-                    if (ch == '\n') {
+                } else if (c == '\\') {
+                    if (p >= file->buf_end) {
+                        file->buf_ptr = p;
+                        handle_eob();
+                        p = file->buf_ptr;
+                        if (p >= file->buf_end)
+                            goto eof_found;
+                        continue;
+                    }
+                    p++;
+                    c = *p;
+                    if (c == '\n') {
                         file->line_num++;
-                        inp();
-                    } else if (ch == '\r') {
-                        inp();
-                        if (ch != '\n')
+                        p++;
+                    } else if (c == '\r') {
+                        p++;
+                        c = *p;
+                        if (c != '\n')
                             break;
                         file->line_num++;
-                        inp();
+                        p++;
                     } else {
                         break;
                     }
-                } else if (ch != '*') {
+                } else if (c == '*') {
+                    p++;
+                } else {
                     break;
                 }
             }
+        } else if (p >= file->buf_end) {
+            file->buf_ptr = p;
+            handle_eob();
+            p = file->buf_ptr;
+            if (p >= file->buf_end) {
+            eof_found:
+                error("unexpected end of file in comment");
+            }
         } else {
-            error("unexpected end of file in comment");
+            /* stray */
+            p++;
         }
     }
  end_of_comment:
-    inp();
+    p++;
+    file->buf_ptr = p;
+    ch = *p;
 }
 
 #define cinp minp
@@ -1588,6 +1624,7 @@ static void preprocess(int is_bof)
         } else if (ch == '\"') {
             c = ch;
         read_name:
+            /* XXX: better stray handling */
             minp();
             q = buf;
             while (ch != c && ch != '\n' && ch != CH_EOF) {
@@ -1596,6 +1633,7 @@ static void preprocess(int is_bof)
                 minp();
             }
             *q = '\0';
+            minp();
 #if 0
             /* eat all spaces and comments after include */
             /* XXX: slightly incorrect */
@@ -1632,7 +1670,6 @@ static void preprocess(int is_bof)
                 c = '>';
             }
         }
-        ch = '\n';
         e = search_cached_include(s1, c, buf);
         if (e && define_find(e->ifndef_macro)) {
             /* no need to parse the include because the 'ifndef macro'
@@ -1691,7 +1728,8 @@ static void preprocess(int is_bof)
                 put_stabs(file->filename, N_BINCL, 0, 0, 0);
             }
 #endif
-            tok_flags |= TOK_FLAG_BOF;
+            tok_flags |= TOK_FLAG_BOF | TOK_FLAG_BOL;
+            ch = file->buf_ptr[0];
             goto the_end;
         }
         break;
@@ -2223,6 +2261,10 @@ static inline void next_nomacro1(void)
         goto redo_no_start;
         
     case '\\':
+        /* first look if it is in fact an end of buffer */
+        handle_eob();
+        if (ch != '\\')
+            goto redo_no_start;
         handle_stray();
         goto redo_no_start;
 
@@ -7122,7 +7164,7 @@ static int tcc_compile(TCCState *s1)
         s1->nb_errors = 0;
         s1->error_set_jmp_enabled = 1;
 
-        ch = '\n'; /* XXX: suppress that*/
+        ch = file->buf_ptr[0];
         tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
         next();
         decl(VT_CONST);
@@ -7202,7 +7244,7 @@ void tcc_define_symbol(TCCState *s1, const char *sym, const char *value)
     s1->include_stack_ptr = s1->include_stack;
 
     /* parse with define parser */
-    ch = '\n'; /* needed to parse correctly first preprocessor command */
+    ch = file->buf_ptr[0];
     next_nomacro();
     parse_define();
     file = NULL;

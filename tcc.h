@@ -505,12 +505,11 @@ static inline int is_float(int t)
 /* read next char from current input file and handle end of input buffer */
 static inline void inp(void)
 {
-    ch = *(file->buf_ptr++);
+    ch = *(++(file->buf_ptr));
     /* end of buffer/file handling */
     if (ch == CH_EOB)
         handle_eob();
 }
-
 
 /* memory management */
 #ifdef MEM_DEBUG
