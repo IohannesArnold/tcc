@@ -2012,6 +2012,9 @@ static void preprocess(int is_bof)
         else
             warning("#warning %s", buf);
         break;
+    case TOK_PRAGMA:
+        /* ignored */
+        break;
     default:
         if (tok == TOK_LINEFEED || tok == '!' || tok == TOK_CINT) {
             /* '!' is ignored to allow C scripts. numbers are ignored
@@ -4623,7 +4626,7 @@ int type_size(CType *type, int *a)
     if (bt == VT_STRUCT) {
         /* struct/union */
         s = type->ref;
-        *a = 4; /* XXX: cannot store it yet. Doing that is safe */
+        *a = s->r;
         return s->c;
     } else if (bt == VT_PTR) {
         if (type->t & VT_ARRAY) {
@@ -4637,7 +4640,7 @@ int type_size(CType *type, int *a)
         *a = LDOUBLE_ALIGN;
         return LDOUBLE_SIZE;
     } else if (bt == VT_DOUBLE || bt == VT_LLONG) {
-        *a = 8;
+        *a = 4; /* XXX: i386 specific */
         return 8;
     } else if (bt == VT_INT || bt == VT_ENUM || bt == VT_FLOAT) {
         *a = 4;
@@ -5094,12 +5097,9 @@ static void struct_decl(CType *type, int u)
             error("struct/union/enum already defined");
         /* cannot be empty */
         c = 0;
-        maxalign = 0;
-        ps = &s->next;
-        bit_pos = 0;
-        offset = 0;
-        while (1) {
-            if (a == TOK_ENUM) {
+        /* non empty enums are not allowed */
+        if (a == TOK_ENUM) {
+            for(;;) {
                 v = tok;
                 next();
                 if (tok == '=') {
@@ -5112,7 +5112,16 @@ static void struct_decl(CType *type, int u)
                 if (tok == ',')
                     next();
                 c++;
-            } else {
+                if (tok == '}')
+                    break;
+            }
+            skip('}');
+        } else {
+            maxalign = 1;
+            ps = &s->next;
+            bit_pos = 0;
+            offset = 0;
+            while (tok != '}') {
                 parse_btype(&btype, &ad);
                 while (1) {
                     bit_size = -1;
@@ -5142,7 +5151,8 @@ static void struct_decl(CType *type, int u)
                         bt = type1.t & VT_BTYPE;
                         if (bt != VT_INT && 
                             bt != VT_BYTE && 
-                            bt != VT_SHORT)
+                            bt != VT_SHORT &&
+                            bt != VT_ENUM)
                             error("bitfields must have scalar type");
                         bsize = size * 8;
                         if (bit_size > bsize) {
@@ -5201,18 +5211,17 @@ static void struct_decl(CType *type, int u)
                         *ps = ss;
                         ps = &ss->next;
                     }
-                    if (tok == ';' || tok == -1)
+                    if (tok == ';' || tok == TOK_EOF)
                         break;
                     skip(',');
                 }
                 skip(';');
             }
-            if (tok == '}')
-                break;
+            skip('}');
+            /* store size and alignment */
+            s->c = (c + maxalign - 1) & -maxalign; 
+            s->r = maxalign;
         }
-        skip('}');
-        /* size for struct/union, dummy for enum */
-        s->c = (c + maxalign - 1) & -maxalign; 
     }
 }
 
@@ -6117,18 +6126,17 @@ static void expr_land(void)
     int t;
 
     expr_or();
-    t = 0;
-    while (1) {
-        if (tok != TOK_LAND) {
-            if (t) {
-                t = gtst(1, t);
+    if (tok == TOK_LAND) {
+        t = 0;
+        for(;;) {
+            t = gtst(1, t);
+            if (tok != TOK_LAND) {
                 vseti(VT_JMPI, t);
+                break;
             }
-            break;
+            next();
+            expr_or();
         }
-        t = gtst(1, t);
-        next();
-        expr_or();
     }
 }
 
@@ -6137,18 +6145,17 @@ static void expr_lor(void)
     int t;
 
     expr_land();
-    t = 0;
-    while (1) {
-        if (tok != TOK_LOR) {
-            if (t) {
-                t = gtst(0, t);
+    if (tok == TOK_LOR) {
+        t = 0;
+        for(;;) {
+            t = gtst(0, t);
+            if (tok != TOK_LOR) {
                 vseti(VT_JMP, t);
+                break;
             }
-            break;
+            next();
+            expr_land();
         }
-        t = gtst(0, t);
-        next();
-        expr_land();
     }
 }
 
@@ -6178,8 +6185,16 @@ static void expr_eq(void)
         expr_lor();
         if (tok == '?') {
             next();
-            save_regs(1); /* we need to save all registers here except
-                             at the top because it is a branch point */
+            if (vtop != vstack) {
+                /* needed to avoid having different registers saved in
+                   each branch */
+                if (is_float(vtop->type.t))
+                    rc = RC_FLOAT;
+                else
+                    rc = RC_INT;
+                    gv(rc);
+                    save_regs(1);
+            }
             tt = gtst(1, 0);
             gexpr();
             type1 = vtop->type;
@@ -6187,7 +6202,6 @@ static void expr_eq(void)
             vtop--; /* no vpop so that FP stack is not flushed */
             skip(':');
             u = gjmp(0);
-
             gsym(tt);
             expr_eq();
             type2 = vtop->type;
@@ -6240,6 +6254,7 @@ static void expr_eq(void)
                    to handle a complicated move */
                 rc = RC_IRET; 
             }
+            
             r2 = gv(rc);
             /* this is horrible, but we must also convert first
                operand */
@@ -7994,6 +8009,11 @@ TCCState *tcc_new(void)
 #endif
     /* tiny C specific defines */
     tcc_define_symbol(s, "__TINYC__", NULL);
+
+    /* tiny C & gcc defines */
+    tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned int");
+    tcc_define_symbol(s, "__PTRDIFF_TYPE__", "int");
+    tcc_define_symbol(s, "__WCHAR_TYPE__", "int");
     
     /* default library paths */
     tcc_add_library_path(s, "/usr/local/lib");
