@@ -2840,7 +2840,9 @@ void gen_op(int op)
             vpushi(pointed_size(vtop[-1].t));
             gen_op('*');
 #ifdef ENABLE_BOUNDS_CHECK
-            if (do_bounds_check) {
+            /* if evaluating constant expression, no code should be
+               generated, so no bound check */
+            if (do_bounds_check && !const_wanted) {
                 /* if bounded pointers, we generate a special code to
                    test bounds */
                 if (op == '-') {
