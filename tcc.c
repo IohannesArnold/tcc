@@ -107,7 +107,7 @@ static const char *tcc_keywords =
 #define vsnprintf _vsnprintf
 #endif
 
-#if defined(WIN32) || defined(TCC_UCLIBC)
+#if defined(WIN32) || defined(TCC_UCLIBC) || defined(__FreeBSD__)
 /* currently incorrect */
 long double strtold(const char *nptr, char **endptr)
 {
@@ -3445,7 +3445,7 @@ void save_reg(int r)
                 store(r, &sv);
 #ifdef TCC_TARGET_I386
                 /* x86 specific: need to pop fp register ST0 if saved */
-                if (r == REG_ST0) {
+                if (r == TREG_ST0) {
                     o(0xd9dd); /* fstp %st(1) */
                 }
 #endif
@@ -3776,7 +3776,7 @@ void vpop(void)
     v = vtop->r & VT_VALMASK;
 #ifdef TCC_TARGET_I386
     /* for x86, we need to pop the FP stack */
-    if (v == REG_ST0 && !nocode_wanted) {
+    if (v == TREG_ST0 && !nocode_wanted) {
         o(0xd9dd); /* fstp %st(1) */
     } else
 #endif
@@ -7631,6 +7631,7 @@ int tcc_compile_string(TCCState *s, const char *str)
     buf = tcc_malloc(len + 1);
     if (!buf)
         return -1;
+    memcpy(buf, str, len);
     buf[len] = CH_EOB;
     bf->buf_ptr = buf;
     bf->buf_end = buf + len;
@@ -7815,24 +7816,33 @@ static void rt_printline(unsigned long wanted_pc)
 
 #ifdef __i386__
 
-#ifndef EIP
-#define EIP 14
-#define EBP 6
+/* fix for glibc 2.1 */
+#ifndef REG_EIP
+#define REG_EIP EIP
+#define REG_EBP EBP
 #endif
 
 #ifdef ENABLE_DEBUG
 /* return the PC at frame level 'level'. Return non zero if not found */
 static int rt_get_caller_pc(unsigned long *paddr, 
-                            struct ucontext *uc, int level)
+                            ucontext_t *uc, int level)
 {
     unsigned long fp;
     int i;
 
     if (level == 0) {
-        *paddr = uc->uc_mcontext.gregs[EIP];
+#ifdef __FreeBSD__
+        *paddr = uc->uc_mcontext.mc_eip;
+#else
+        *paddr = uc->uc_mcontext.gregs[REG_EIP];
+#endif
         return 0;
     } else {
-        fp = uc->uc_mcontext.gregs[EBP];
+#ifdef __FreeBSD__
+        fp = uc->uc_mcontext.mc_ebp;
+#else
+        fp = uc->uc_mcontext.gregs[REG_EBP];
+#endif
         for(i=1;i<level;i++) {
             /* XXX: check address validity with program info */
             if (fp <= 0x1000 || fp >= 0xc0000000)
@@ -7851,7 +7861,7 @@ static int rt_get_caller_pc(unsigned long *paddr,
 
 #ifdef ENABLE_DEBUG
 /* emit a run time error at position 'pc' */
-void rt_error(struct ucontext *uc, const char *fmt, ...)
+void rt_error(ucontext_t *uc, const char *fmt, ...)
 {
     va_list ap;
     unsigned long pc;
@@ -7879,7 +7889,7 @@ void rt_error(struct ucontext *uc, const char *fmt, ...)
 /* signal handler for fatal errors */
 static void sig_error(int signum, siginfo_t *siginf, void *puc)
 {
-    struct ucontext *uc = puc;
+    ucontext_t *uc = puc;
 
     switch(signum) {
     case SIGFPE:
@@ -7969,7 +7979,7 @@ int tcc_run(TCCState *s1, int argc, char **argv)
         struct sigaction sigact;
         /* install TCC signal handlers to print debug info on fatal
            runtime errors */
-        sigact.sa_flags = SA_SIGINFO | SA_ONESHOT;
+        sigact.sa_flags = SA_SIGINFO | SA_RESETHAND;
         sigact.sa_sigaction = sig_error;
         sigemptyset(&sigact.sa_mask);
         sigaction(SIGFPE, &sigact, NULL);
@@ -8145,13 +8155,18 @@ int tcc_add_sysinclude_path(TCCState *s1, const char *pathname)
 
 static int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
 {
-    const char *ext;
+    const char *ext, *filename1;
     Elf32_Ehdr ehdr;
     int fd, ret;
     BufferedFile *saved_file;
     
     /* find source file type with extension */
-    ext = strrchr(filename, '.');
+    filename1 = strrchr(filename, '/');
+    if (filename1)
+        filename1++;
+    else
+        filename1 = filename;
+    ext = strrchr(filename1, '.');
     if (ext)
         ext++;
 
@@ -8344,7 +8359,7 @@ static int64_t getclock_us(void)
 
 void help(void)
 {
-    printf("tcc version 0.9.14 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
+    printf("tcc version 0.9.15 - Tiny C Compiler - Copyright (C) 2001, 2002 Fabrice Bellard\n" 
            "usage: tcc [-c] [-o outfile] [-Bdir] [-bench] [-Idir] [-Dsym[=val]] [-Usym]\n"
            "           [-g] [-b] [-bt N] [-Ldir] [-llib] [-shared] [-static]\n"
            "           [--] infile1 [infile2... --] [infile_args...]\n"

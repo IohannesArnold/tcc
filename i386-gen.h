@@ -19,16 +19,16 @@
 
 /* pretty names for the registers */
 enum {
-    REG_EAX = 0,
-    REG_ECX,
-    REG_EDX,
-    REG_ST0,
+    TREG_EAX = 0,
+    TREG_ECX,
+    TREG_EDX,
+    TREG_ST0,
 };
 
 /* return registers for function */
-#define REG_IRET REG_EAX /* single word int return register */
-#define REG_LRET REG_EDX /* second word return register (for long long) */
-#define REG_FRET REG_ST0 /* float return register */
+#define REG_IRET TREG_EAX /* single word int return register */
+#define REG_LRET TREG_EDX /* second word return register (for long long) */
+#define REG_FRET TREG_ST0 /* float return register */
 
 /* defined if function parameters must be evaluated in reverse order */
 #define INVERT_FUNC_PARAMS
@@ -43,7 +43,6 @@ enum {
 /* long double size and alignment, in bytes */
 #define LDOUBLE_SIZE  12
 #define LDOUBLE_ALIGN 4
-
 /* maximum alignment (for aligned attribute support) */
 #define MAX_ALIGN     8
 
