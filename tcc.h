@@ -1,9 +1,32 @@
 #define VSTACK_SIZE         64
 
+/* token symbol management */
+typedef struct TokenSym {
+    struct TokenSym *hash_next;
+    int tok; /* token number */
+    int len;
+    char str[1];
+} TokenSym;
+
+/* constant value */
+typedef union CValue {
+    long double ld;
+    double d;
+    float f;
+    int i;
+    unsigned int ui;
+    unsigned int ul; /* address (should be unsigned long on 64 bit cpu) */
+    long long ll;
+    unsigned long long ull;
+    struct TokenSym *ts;
+    int tab[1];
+    struct Sym *sym;
+} CValue;
+
 /* value on stack */
 typedef struct SValue {
     int t;
-    int c;
+    CValue c;
 } SValue;
 
 /* symbol management */
@@ -203,4 +226,12 @@ enum {
     TOK___FUNC__,
     TOK_MAIN,
 };
+
+/* true if float/double/long double type */
+static inline int is_float(int t)
+{
+    int bt;
+    bt = t & VT_BTYPE;
+    return bt == VT_LDOUBLE || bt == VT_DOUBLE || bt == VT_FLOAT;
+}
 
