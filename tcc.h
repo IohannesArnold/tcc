@@ -130,7 +130,7 @@ typedef struct AttributeDef {
 #define MACRO_OBJ      0 /* object like macro */
 #define MACRO_FUNC     1 /* function like macro */
 
-/* field 'Sym.t' for labels */
+/* field 'Sym.r' for labels */
 #define LABEL_FORWARD  1 /* label is forward defined */
 
 /* type_decl() types */
@@ -451,7 +451,6 @@ int parse_btype(int *type_ptr, AttributeDef *ad);
 int type_decl(AttributeDef *ad, int *v, int t, int td);
 
 void error(const char *fmt, ...);
-void rt_error(unsigned long pc, const char *fmt, ...);
 void vpushi(int v);
 void vset(int t, int r, int v);
 void type_to_str(char *buf, int buf_size, 
