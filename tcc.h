@@ -260,7 +260,8 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define TOK_A_SHL 0x81
 #define TOK_A_SAR 0x82
 
-#define TOK_EOF   (-1)  /* end of file */
+#define TOK_EOF       (-1)  /* end of file */
+#define TOK_LINEFEED  10    /* line feed */
 
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
