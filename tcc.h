@@ -142,6 +142,7 @@ typedef struct BufferedFile {
     unsigned char *buf_end;
     int fd;
     int line_num;    /* current line number - here to simply code */
+    int *ifdef_stack_ptr; /* ifdef_stack value at the start of the file */
     char filename[1024];    /* current filename - here to simplify code */
     unsigned char buffer[IO_BUF_SIZE + 1]; /* extra size for CH_EOB char */
 } BufferedFile;
@@ -170,7 +171,9 @@ struct BufferedFile *file;
 int ch, ch1, tok, tok1;
 CValue tokc, tok1c;
 CString tokcstr; /* current parsed string, if any */
-int return_linefeed; /* if true, line feed is returned as a token */
+/* if true, line feed is returned as a token. line feed is also
+   returned at eof */
+int return_linefeed;
 
 /* sections */
 Section **sections;
