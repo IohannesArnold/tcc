@@ -63,6 +63,7 @@ typedef struct Section {
     unsigned long sh_size;   /* section size (only used during output) */
     unsigned long sh_addr;      /* address at which the section is relocated */
     unsigned long sh_offset;      /* address at which the section is relocated */
+    int nb_hashed_syms;      /* used to resize the hash table */
     struct Section *link;    /* link to another section */
     struct Section *reloc;   /* corresponding section for relocation, if any */
     struct Section *hash;     /* hash table for symbols */
@@ -112,7 +113,7 @@ Section *lbounds_section; /* contains local data bound description */
 /* symbol sections */
 Section *symtab_section, *strtab_section;
 /* temporary dynamic symbol sections (for dll loading) */
-Section *dynsymtab_section, *dynstrtab_section;
+Section *dynsymtab_section;
 /* exported dynamic symbol section */
 Section *dynsym;
 /* got handling */
@@ -120,6 +121,8 @@ Section *got;
 unsigned long *got_offsets;
 int nb_got_offsets;
 int nb_plt_entries;
+/* give the correspondance from symtab indexes to dynsym indexes */
+int *symtab_to_dynsym;
 
 
 /* array of all loaded dlls (including those referenced by loaded
