@@ -6918,11 +6918,22 @@ int tcc_output_file(TCCState *s1, const char *filename)
         break;
     }
 
-    /* allocate strings for section names */
+    /* allocate strings for section names and decide if an unallocated
+       section should be output */
+    /* NOTE: the strsec section comes last, so its size is also
+       correct ! */
     for(i = 1; i < nb_sections; i++) {
         s = sections[i];
         s->sh_name = put_elf_str(strsec, s->name);
-        s->sh_size = s->data_offset;
+        /* we output all sections if debug or object file */
+#ifdef ENABLE_DEBUG
+        if (do_debug || 
+            file_type == TCC_OUTPUT_OBJ || 
+            (s->sh_flags & SHF_ALLOC) ||
+            i == (nb_sections - 1)) {
+            s->sh_size = s->data_offset;
+        }
+#endif
     }
 
     /* allocate program segment headers */
@@ -7213,7 +7224,7 @@ int tcc_output_file(TCCState *s1, const char *filename)
                 fputc(0, f);
                 offset++;
             }
-            size = s->data_offset;
+            size = s->sh_size;
             fwrite(s->data, 1, size, f);
             offset += size;
         }
@@ -8140,6 +8151,33 @@ int tcc_set_output_type(TCCState *s, int output_type)
 {
     s->output_type = output_type;
 
+    /* if bound checking, then add corresponding sections */
+#ifdef CONFIG_TCC_BCHECK
+    if (do_bounds_check) {
+        /* define symbol */
+        tcc_define_symbol(s, "__BOUNDS_CHECKING_ON", NULL);
+        /* create bounds sections */
+        bounds_section = new_section(".bounds", 
+                                     SHT_PROGBITS, SHF_ALLOC);
+        lbounds_section = new_section(".lbounds", 
+                                      SHT_PROGBITS, SHF_ALLOC);
+    }
+#endif
+
+#ifdef ENABLE_DEBUG
+    /* add debug sections */
+    if (do_debug) {
+        /* stab symbols */
+        stab_section = new_section(".stab", SHT_PROGBITS, 0);
+        stab_section->sh_entsize = sizeof(Stab_Sym);
+        stabstr_section = new_section(".stabstr", SHT_STRTAB, 0);
+        put_elf_str(stabstr_section, "");
+        stab_section->link = stabstr_section;
+        /* put first entry */
+        put_stabs("", 0, 0, 0, 0);
+    }
+#endif
+
     /* add libc crt1/crti objects */
     if (output_type == TCC_OUTPUT_EXE || 
         output_type == TCC_OUTPUT_DLL) {
@@ -8241,39 +8279,14 @@ int main(int argc, char **argv)
             do_bench = 1;
 #ifdef CONFIG_TCC_BCHECK
         } else if (r[1] == 'b') {
-            if (!do_bounds_check) {
-                do_bounds_check = 1;
-                /* define symbol */
-                tcc_define_symbol(s, "__BOUNDS_CHECKING_ON", NULL);
-                /* create bounds sections */
-                bounds_section = new_section(".bounds", 
-                                             SHT_PROGBITS, SHF_ALLOC);
-                lbounds_section = new_section(".lbounds", 
-                                              SHT_PROGBITS, SHF_ALLOC);
-                /* debug is implied */
-                goto debug_opt;
-            }
+            do_bounds_check = 1;
+            do_debug = 1;
 #endif
 #ifdef ENABLE_DEBUG
         } else if (r[1] == 'g') {
-        debug_opt:
-            if (!do_debug) {
-                do_debug = 1;
-
-                /* stab symbols */
-                stab_section = new_section(".stab", SHT_PROGBITS, 0);
-                stab_section->sh_entsize = sizeof(Stab_Sym);
-                stabstr_section = new_section(".stabstr", SHT_STRTAB, 0);
-                put_elf_str(stabstr_section, "");
-                stab_section->link = stabstr_section;
-                /* put first entry */
-                put_stabs("", 0, 0, 0, 0);
-            }
+            do_debug = 1;
 #endif
-        } else 
-        /* the following options are only for testing, so not
-           documented */
-        if (r[1] == 'c') {
+        } else if (r[1] == 'c') {
             multiple_files = 1;
             output_type = TCC_OUTPUT_OBJ;
         } else if (!strcmp(r + 1, "static")) {
