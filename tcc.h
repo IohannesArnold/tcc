@@ -446,6 +446,7 @@ void vpop(void);
 void vswap(void);
 void vdup(void);
 int get_reg(int rc);
+int handle_eob(void);
 
 int save_reg_forced(int r);
 void gen_op(int op);
@@ -508,7 +509,7 @@ static inline void inp(void)
     ch = *(++(file->buf_ptr));
     /* end of buffer/file handling */
     if (ch == CH_EOB)
-        handle_eob();
+        ch = handle_eob();
 }
 
 /* memory management */
