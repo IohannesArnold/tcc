@@ -1148,22 +1148,40 @@ void minp(void)
 }
 
 
-static void parse_line_comment(void)
+/* single line C++ comments */
+static char *parse_line_comment(char *p)
 {
-    /* single line C++ comments */
-    /* XXX: accept '\\\n' ? */
-    inp();
-    while (ch != '\n' && ch != CH_EOF)
-        inp();
+    int c;
+
+    p++;
+    for(;;) {
+        c = *p;
+        if (c == '\n' || c == CH_EOF) {
+            break;
+        } else if (c == '\\') {
+            PEEKC_EOB(c, p);
+            if (c == '\n') {
+                file->line_num++;
+                PEEKC_EOB(c, p);
+            } else if (c == '\r') {
+                PEEKC_EOB(c, p);
+                if (c == '\n') {
+                    file->line_num++;
+                    PEEKC_EOB(c, p);
+                }
+            }
+        } else {
+            p++;
+        }
+    }
+    return p;
 }
 
-void parse_comment(void)
+/* C comments */
+char *parse_comment(char *p)
 {
-    char *p;
     int c;
     
-    /* C comments */
-    p = file->buf_ptr;
     p++;
     for(;;) {
         /* fast skip loop */
@@ -1192,32 +1210,30 @@ void parse_comment(void)
                 } else if (c == '\\') {
                     file->buf_ptr = p;
                     c = handle_eob();
+                    p = file->buf_ptr;
                     if (c == '\\') {
-                        /* skip '\\n', but if '\' followed but another
-                           char, behave asif a stray was parsed */
-                        ch = file->buf_ptr[0];
-                        while (ch == '\\') {
-                            inp();
-                            if (ch == '\n') {
+                        /* skip '\[\r]\n', otherwise just skip the stray */
+                        while (c == '\\') {
+                            PEEKC_EOB(c, p);
+                            if (c == '\n') {
                                 file->line_num++;
-                                inp();
-                            } else if (ch == '\r') {
-                                inp();
-                                if (ch == '\n') {
+                                PEEKC_EOB(c, p);
+                            } else if (c == '\r') {
+                                PEEKC_EOB(c, p);
+                                if (c == '\n') {
                                     file->line_num++;
-                                    inp();
+                                    PEEKC_EOB(c, p);
                                 }
                             } else {
-                                p = file->buf_ptr;
-                                break;
+                                goto after_star;
                             }
                         }
                     }
-                    p = file->buf_ptr;
                 } else {
                     break;
                 }
             }
+        after_star: ;
         } else {
             /* stray, eob or eof */
             file->buf_ptr = p;
@@ -1232,8 +1248,7 @@ void parse_comment(void)
     }
  end_of_comment:
     p++;
-    file->buf_ptr = p;
-    ch = *p;
+    return p;
 }
 
 #define cinp minp
@@ -1360,12 +1375,12 @@ void preprocess_skip(void)
             file->buf_ptr = p;
             ch = *p;
             minp();
-            if (ch == '*') {
-                parse_comment();
-            } else if (ch == '/') {
-                parse_line_comment();
-            }
             p = file->buf_ptr;
+            if (ch == '*') {
+                p = parse_comment(p);
+            } else if (ch == '/') {
+                p = parse_line_comment(p);
+            }
             break;
 
         case '#':
@@ -2920,14 +2935,10 @@ static inline void next_nomacro1(void)
     case '/':
         PEEKC(c, p);
         if (c == '*') {
-            file->buf_ptr = p;
-            parse_comment();
-            p = file->buf_ptr;
+            p = parse_comment(p);
             goto redo_no_start;
         } else if (c == '/') {
-            file->buf_ptr = p;
-            parse_line_comment();
-            p = file->buf_ptr;
+            p = parse_line_comment(p);
             goto redo_no_start;
         } else if (c == '=') {
             p++;

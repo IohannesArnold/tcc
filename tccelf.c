@@ -1880,7 +1880,8 @@ static int ld_next(TCCState *s1, char *name, int name_size)
     case '/':
         minp();
         if (ch == '*') {
-            parse_comment();
+            file->buf_ptr = parse_comment(file->buf_ptr);
+            ch = file->buf_ptr[0];
             goto redo;
         } else {
             q = name;

@@ -518,7 +518,7 @@ enum {
 };
 
 void minp(void);
-void parse_comment(void);
+char *parse_comment(char *p);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
