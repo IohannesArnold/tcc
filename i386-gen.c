@@ -441,6 +441,7 @@ void gjmp_addr(int a)
 int gtst(int inv, int t)
 {
     int v, *p;
+
     v = vtop->r & VT_VALMASK;
     if (v == VT_CMP) {
         /* fast case : can jump directly since flags are set */

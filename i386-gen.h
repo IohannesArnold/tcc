@@ -44,6 +44,9 @@ enum {
 #define LDOUBLE_SIZE  12
 #define LDOUBLE_ALIGN 4
 
+/* maximum alignment (for aligned attribute support) */
+#define MAX_ALIGN     8
+
 /* relocation type for 32 bit data relocation */
 #define R_DATA_32 R_386_32
 
