@@ -256,6 +256,14 @@ enum {
     TOK___ALIGNED__,
     TOK_UNUSED,
     TOK___UNUSED__,
+    TOK_CDECL,
+    TOK___CDECL,
+    TOK___CDECL__,
+    TOK_STDCALL,
+    TOK___STDCALL,
+    TOK___STDCALL__,
+    TOK_NORETURN,
+    TOK___NORETURN__,
 };
 
 /* true if float/double/long double type */
