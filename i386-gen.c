@@ -362,6 +362,7 @@ void gfunc_prolog(CType *func_type)
         func_bound_offset = lbounds_section->data_offset;
     }
 #endif
+    loc = 0;
 }
 
 /* generate function epilog */
