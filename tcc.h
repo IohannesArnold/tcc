@@ -25,9 +25,11 @@ typedef union CValue {
 
 /* value on stack */
 typedef struct SValue {
-    int t;
-    int r;      /* register + flags */
-    CValue c;
+    int t;      /* type */
+    unsigned short r;      /* register + flags */
+    unsigned short r2;     /* second register, used for 'long long'
+                              type. If not used, set to VT_CONST */
+    CValue c;   /* constant */
 } SValue;
 
 /* symbol management */
@@ -52,28 +54,29 @@ typedef struct Reloc {
 #define RELOC_REL32  2  /* 32 bits relative relocation */
 
 /* loc : local variable index
-   glo : global variable index
-   ind : output code ptr
+   ind : output code index
    rsym: return symbol
    prog: output code
    anon_sym: anonymous symbol index
 */
 int rsym, anon_sym,
-    prog, ind, loc, glo, const_wanted;
+    prog, ind, loc, const_wanted;
 
 SValue vstack[VSTACK_SIZE], *vtop;
 
 /* The current value can be: */
-#define VT_VALMASK 0x00ff
-#define VT_CONST   0x00f0  /* constant in vc
+#define VT_VALMASK  0x00ff
+#define VT_CONST    0x00f0  /* constant in vc 
                               (must be first non register value) */
-#define VT_LLOCAL  0x00f1  /* lvalue, offset on stack */
-#define VT_LOCAL   0x00f2  /* offset on stack */
-#define VT_CMP     0x00f3  /* the value is stored in processor flags (in vc) */
-#define VT_JMP     0x00f4  /* value is the consequence of jmp true (even) */
-#define VT_JMPI    0x00f5  /* value is the consequence of jmp false (odd) */
-#define VT_LVAL    0x0100  /* var is an lvalue */
-#define VT_FORWARD 0x0200  /* value is forward reference */
+#define VT_LLOCAL   0x00f1  /* lvalue, offset on stack */
+#define VT_LOCAL    0x00f2  /* offset on stack */
+#define VT_CMP      0x00f3  /* the value is stored in processor flags (in vc) */
+#define VT_JMP      0x00f4  /* value is the consequence of jmp true (even) */
+#define VT_JMPI     0x00f5  /* value is the consequence of jmp false (odd) */
+#define VT_LVAL     0x0100  /* var is an lvalue */
+#define VT_FORWARD  0x0200  /* value is forward reference */
+#define VT_MUSTCAST 0x0400  /* value must be casted to be correct (user for
+                               bool/char/short stored in int registers) */
 
 /* types */
 #define VT_STRUCT_SHIFT 16   /* structure/enum name shift (16 bits left) */
@@ -126,13 +129,10 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define TOK_DEC   0xa2
 #define TOK_MID   0xa3 /* inc/dec, to void constant */
 #define TOK_INC   0xa4
-#define TOK_ARROW 0xa7 
-#define TOK_DOTS  0xa8 /* three dots */
-#define TOK_SHR   0xa9 /* unsigned shift right */
 #define TOK_UDIV  0xb0 /* unsigned division */
 #define TOK_UMOD  0xb1 /* unsigned modulo */
 #define TOK_PDIV  0xb2 /* fast division with undefined rounding for pointers */
-#define TOK_NUM   0xb3 /* number in tokc */
+#define TOK_CINT   0xb3 /* number in tokc */
 #define TOK_CCHAR 0xb4 /* char constant in tokc */
 #define TOK_STR   0xb5 /* pointer to string in tokc */
 #define TOK_TWOSHARPS 0xb6 /* ## preprocessing token */
@@ -141,6 +141,17 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define TOK_CFLOAT   0xb9 /* float constant */
 #define TOK_CDOUBLE  0xc0 /* double constant */
 #define TOK_CLDOUBLE 0xc1 /* long double constant */
+#define TOK_UMULL    0xc2 /* unsigned 32x32 -> 64 mul */
+#define TOK_ADDC1    0xc3 /* add with carry generation */
+#define TOK_ADDC2    0xc4 /* add with carry use */
+#define TOK_SUBC1    0xc5 /* add with carry generation */
+#define TOK_SUBC2    0xc6 /* add with carry use */
+#define TOK_CUINT    0xc8 /* unsigned int constant */
+#define TOK_CLLONG   0xc9 /* long long constant */
+#define TOK_CULLONG  0xca /* unsigned long long constant */
+#define TOK_ARROW    0xcb
+#define TOK_DOTS     0xcc /* three dots */
+#define TOK_SHR      0xcd /* unsigned shift right */
 
 #define TOK_SHL   0x01 /* shift left */
 #define TOK_SAR   0x02 /* signed shift right */
@@ -201,7 +212,8 @@ enum {
     TOK_DEFAULT,
     TOK_ENUM,
     TOK_SIZEOF,
-
+    TOK___ATTRIBUTE__,
+    
     /* preprocessor only */
     TOK_UIDENT, /* first "user" ident (not keyword) */
     TOK_DEFINE = TOK_UIDENT,
@@ -223,6 +235,13 @@ enum {
     /* special identifiers */
     TOK___FUNC__,
     TOK_MAIN,
+    /* attribute identifiers */
+    TOK_SECTION,
+    TOK___SECTION__,
+    TOK_ALIGNED,
+    TOK___ALIGNED__,
+    TOK_UNUSED,
+    TOK___UNUSED__,
 };
 
 /* true if float/double/long double type */
