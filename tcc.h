@@ -116,6 +116,7 @@ typedef struct DLLReference {
 /* GNUC attribute definition */
 typedef struct AttributeDef {
     int aligned;
+    int packed; 
     Section *section;
     unsigned char func_call; /* FUNC_CDECL, FUNC_STDCALL, FUNC_FASTCALLx */
 } AttributeDef;
