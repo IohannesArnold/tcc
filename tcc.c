@@ -138,6 +138,7 @@ int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
 char **include_paths;
 int nb_include_paths;
 int char_pointer_type;
+int func_old_type;
 
 #ifdef ENABLE_DEBUG
 /* compile with debug symbol (and use them if error during execution) */
@@ -185,10 +186,10 @@ char *tcc_keywords =
 "defined\0undef\0error\0line\0"
 "__LINE__\0__FILE__\0__DATE__\0__TIME__\0__VA_ARGS__\0"
 "__func__\0main\0"
-/* attributes */
-"section\0__section__\0aligned\0__aligned__\0unused\0__unused__\0"
-"cdecl\0__cdecl\0__cdecl__\0stdcall\0__stdcall\0__stdcall__\0"
-"noreturn\0__noreturn__\0"
+/* builtin functions */
+#define DEF(id, str) str "\0"
+#include "tcctok.h"
+#undef DEF
 ;
 
 #ifdef WIN32
@@ -259,6 +260,7 @@ void vset(int t, int r, int v);
 void type_to_str(char *buf, int buf_size, 
                  int t, const char *varstr);
 char *get_tok_str(int v, CValue *cv);
+Sym *external_sym(int v, int u, int r);
 
 /* section generation */
 void put_extern_sym(Sym *sym, Section *section, unsigned long value);
@@ -324,77 +326,6 @@ void *dlsym(void *handle, const char *symbol)
 }
 
 #endif
-
-/********************************************************/
-/* runtime library is there */
-/* XXX: we suppose that the host compiler handles 'long long'. It
-   would not be difficult to suppress this assumption */
-
-long long __divll(long long a, long long b)
-{
-    return a / b;
-}
-
-long long __modll(long long a, long long b)
-{
-    return a % b;
-}
-
-unsigned long long __divull(unsigned long long a, unsigned long long b)
-{
-    return a / b;
-}
-
-unsigned long long __modull(unsigned long long a, unsigned long long b)
-{
-    return a % b;
-}
-
-long long __sardi3(long long a, int b)
-{
-    return a >> b;
-}
-
-unsigned long long __shrdi3(unsigned long long a, int b)
-{
-    return a >> b;
-}
-
-long long __shldi3(long long a, int b)
-{
-    return a << b;
-}
-
-float __ulltof(unsigned long long a)
-{
-    return (float)a;
-}
-
-double __ulltod(unsigned long long a)
-{
-    return (double)a;
-}
-
-long double __ulltold(unsigned long long a)
-{
-    return (long double)a;
-}
-
-unsigned long long __ftoull(float a)
-{
-    return (unsigned long long)a;
-}
-
-unsigned long long __dtoull(double a)
-{
-    return (unsigned long long)a;
-}
-
-unsigned long long __ldtoull(long double a)
-{
-    return (unsigned long long)a;
-}
-
 
 /********************************************************/
 
@@ -2238,6 +2169,17 @@ void vpush_ref(int t, Section *sec, unsigned long offset)
     vsetc(t, VT_CONST | VT_SYM, &cval);
 }
 
+/* push a reference to symbol v */
+void vpush_sym(int t, int v)
+{
+    Sym *sym;
+    CValue cval;
+
+    sym = external_sym(v, t, 0);
+    cval.sym = sym;
+    vsetc(t, VT_CONST | VT_SYM, &cval);
+}
+
 void vset(int t, int r, int v)
 {
     CValue cval;
@@ -2668,29 +2610,29 @@ void gv_dup(void)
 void gen_opl(int op)
 {
     int t, a, b, op1, c, i;
-    void *func;
+    int func;
     GFuncContext gf;
     SValue tmp;
 
     switch(op) {
     case '/':
     case TOK_PDIV:
-        func = __divll;
+        func = TOK___divdi3;
         goto gen_func;
     case TOK_UDIV:
-        func = __divull;
+        func = TOK___udivdi3;
         goto gen_func;
     case '%':
-        func = __modll;
+        func = TOK___moddi3;
         goto gen_func;
     case TOK_UMOD:
-        func = __modull;
+        func = TOK___umoddi3;
     gen_func:
         /* call generic long long function */
         gfunc_start(&gf, FUNC_CDECL);
         gfunc_param(&gf);
         gfunc_param(&gf);
-        vpushi((int)func);
+        vpush_sym(func_old_type, func);
         gfunc_call(&gf);
         vpushi(0);
         vtop->r = REG_IRET;
@@ -2815,13 +2757,13 @@ void gen_opl(int op)
             /* XXX: should provide a faster fallback on x86 ? */
             switch(op) {
             case TOK_SAR:
-                func = __sardi3;
+                func = TOK___sardi3;
                 goto gen_func;
             case TOK_SHR:
-                func = __shrdi3;
+                func = TOK___shrdi3;
                 goto gen_func;
             case TOK_SHL:
-                func = __shldi3;
+                func = TOK___shldi3;
                 goto gen_func;
             }
         }
@@ -3210,11 +3152,11 @@ void gen_cvt_itof1(int t)
         gfunc_start(&gf, FUNC_CDECL);
         gfunc_param(&gf);
         if (t == VT_FLOAT)
-            vpushi((int)&__ulltof);
+            vpush_sym(func_old_type, TOK___ulltof);
         else if (t == VT_DOUBLE)
-            vpushi((int)&__ulltod);
+            vpush_sym(func_old_type, TOK___ulltod);
         else
-            vpushi((int)&__ulltold);
+            vpush_sym(func_old_type, TOK___ulltold);
         gfunc_call(&gf);
         vpushi(0);
         vtop->r = REG_FRET;
@@ -3235,11 +3177,11 @@ void gen_cvt_ftoi1(int t)
         st = vtop->t & VT_BTYPE;
         gfunc_param(&gf);
         if (st == VT_FLOAT)
-            vpushi((int)&__ftoull);
+            vpush_sym(func_old_type, TOK___fixunssfdi);
         else if (st == VT_DOUBLE)
-            vpushi((int)&__dtoull);
+            vpush_sym(func_old_type, TOK___fixunsdfdi);
         else
-            vpushi((int)&__ldtoull);
+            vpush_sym(func_old_type, TOK___fixunsxfdi);
         gfunc_call(&gf);
         vpushi(0);
         vtop->r = REG_IRET;
@@ -3698,7 +3640,7 @@ void vstore(void)
         gfunc_param(&gf);
 
         save_regs(0);
-        vpushi((int)&memcpy);
+        vpush_sym(func_old_type, TOK_memcpy);
         gfunc_call(&gf);
         /* leave source on stack */
     } else if (ft & VT_BITFIELD) {
@@ -4348,7 +4290,7 @@ void gfunc_param_typed(GFuncContext *gf, Sym *func, Sym *arg)
 
 void unary(void)
 {
-    int n, t, ft, fc, p, align, size, r, data_offset;
+    int n, t, ft, fc, align, size, r, data_offset;
     Sym *s;
     GFuncContext gf;
     AttributeDef ad;
@@ -4498,11 +4440,8 @@ void unary(void)
                 if (tok != '(')
                     error("'%s' undeclared", get_tok_str(t, NULL));
                 /* for simple function calls, we tolerate undeclared
-                   external reference */
-                p = anon_sym++;
-                sym_push1(&global_stack, p, 0, FUNC_OLD);
-                /* int() function */
-                s = external_sym(t, VT_FUNC | (p << VT_STRUCT_SHIFT), 0); 
+                   external reference to int() function */
+                s = external_sym(t, func_old_type, 0); 
             }
             vset(s->t, s->r, s->c);
             /* if forward reference, we must point to s */
@@ -5286,7 +5225,7 @@ void init_putz(int t, Section *sec, unsigned long c, int size)
         gfunc_param(&gf);
         vset(VT_INT, VT_LOCAL, c);
         gfunc_param(&gf);
-        vpushi((int)&memset);
+        vpush_sym(func_old_type, TOK_memset);
         gfunc_call(&gf);
     }
 }
@@ -5853,7 +5792,8 @@ static int tcc_compile(TCCState *s)
 {
     Sym *define_start;
     char buf[512];
-    
+    int p;
+
     funcname = "";
     include_stack_ptr = include_stack;
     ifdef_stack_ptr = ifdef_stack;
@@ -5880,6 +5820,10 @@ static int tcc_compile(TCCState *s)
     /* define common 'char *' type because it is often used internally
        for arrays and struct dereference */
     char_pointer_type = mk_pointer(VT_BYTE);
+    /* define an old type function 'int func()' */
+    p = anon_sym++;
+    sym_push1(&global_stack, p, 0, FUNC_OLD);
+    func_old_type = VT_FUNC | (p << VT_STRUCT_SHIFT);
 
     define_start = define_stack.top;
     inp();
@@ -6474,8 +6418,6 @@ static void put32(unsigned char *p, unsigned int val)
 static void build_got(void)
 {
     /* if no got, then create it */
-    /* a got is needed even if static link for the symbol
-       _GLOBAL_OFFSET_TABLE_ */
     got = new_section(".got", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE);
     got->sh_entsize = 4;
     add_elf_sym(symtab_section, 0, 4, ELF32_ST_INFO(STB_GLOBAL, STT_OBJECT), 
@@ -6600,6 +6542,12 @@ static void put_dt(Section *dynamic, int dt, unsigned long val)
     dynamic->data_ptr += sizeof(Elf32_Dyn);
 }
 
+/* add tcc runtime libraries */
+static void tcc_add_runtime(TCCState *s1)
+{
+    tcc_add_file(s1, CONFIG_TCC_PREFIX "/lib/tcc/libtcc1.o");
+}
+
 /* add dynamic sections so that the executable is dynamically linked */
 static char elf_interp[] = "/lib/ld-linux.so.2";
 
@@ -6630,8 +6578,9 @@ int tcc_output_file(TCCState *s1, const char *filename)
 
     /* add libc crtn object */
     if (file_type != TCC_OUTPUT_OBJ) {
-        tcc_add_file(s1, CONFIG_TCC_CRT_PREFIX "/crtn.o");
+        tcc_add_runtime(s1);
         tcc_add_library(s1, "c");
+        tcc_add_file(s1, CONFIG_TCC_CRT_PREFIX "/crtn.o");
     }
 
     interp = NULL;
@@ -7742,6 +7691,8 @@ int tcc_run(TCCState *s1, int argc, char **argv)
     Section *s;
     int (*prog_main)(int, char **);
     int i;
+
+    tcc_add_runtime(s1);
 
     relocate_common_syms();
 

@@ -20,6 +20,7 @@ typedef union CValue {
     unsigned long long ull;
     struct TokenSym *ts;
     struct Sym *sym;
+    void *ptr;
     int tab[1];
 } CValue;
 
@@ -331,21 +332,9 @@ enum {
     /* special identifiers */
     TOK___FUNC__,
     TOK_MAIN,
-    /* attribute identifiers */
-    TOK_SECTION,
-    TOK___SECTION__,
-    TOK_ALIGNED,
-    TOK___ALIGNED__,
-    TOK_UNUSED,
-    TOK___UNUSED__,
-    TOK_CDECL,
-    TOK___CDECL,
-    TOK___CDECL__,
-    TOK_STDCALL,
-    TOK___STDCALL,
-    TOK___STDCALL__,
-    TOK_NORETURN,
-    TOK___NORETURN__,
+#define DEF(id, str) id,
+#include "tcctok.h"
+#undef DEF
 };
 
 /* true if float/double/long double type */
