@@ -159,10 +159,10 @@ int gnu_ext = 1;
 int tcc_ext = 1;
 
 int reg_classes[NB_REGS] = {
-    /* eax */ RC_INT | RC_IRET,
+    /* eax */ RC_INT | RC_EAX,
     /* ecx */ RC_INT | RC_ECX,
     /* edx */ RC_INT | RC_EDX,
-    /* st0 */ RC_FLOAT | RC_FRET,
+    /* st0 */ RC_FLOAT | RC_ST0,
 };
 
 extern float strtof (const char *__nptr, char **__endptr);
