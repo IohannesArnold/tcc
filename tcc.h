@@ -157,7 +157,8 @@ typedef struct BufferedFile {
     unsigned char buffer[IO_BUF_SIZE + 1]; /* extra size for CH_EOB char */
 } BufferedFile;
 
-#define CH_EOB   0       /* end of buffer or '\0' char in file */
+
+#define CH_EOB   '\\'       /* end of buffer or '\0' char in file */
 #define CH_EOF   (-1)   /* end of file */
 
 /* parsing state (used to save parser state to reparse part of the

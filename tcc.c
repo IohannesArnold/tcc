@@ -999,6 +999,11 @@ int tcc_getc_slow(BufferedFile *bf)
 void handle_eob(void)
 {
     TCCState *s1 = tcc_state;
+
+    /* no need to do anything if not at EOB */
+    if (file->buf_ptr <= file->buf_end)
+        return;
+
     for(;;) {
         ch1 = tcc_getc_slow(file);
         if (ch1 != CH_EOF)
@@ -1963,7 +1968,7 @@ void parse_number(const char *p)
                 }
             }
             if (ch != 'p' && ch != 'P')
-                error("exponent expected");
+                expect("exponent");
             ch = *p++;
             s = 1;
             exp_val = 0;
@@ -1974,7 +1979,7 @@ void parse_number(const char *p)
                 ch = *p++;
             }
             if (ch < '0' || ch > '9')
-                error("exponent digits expected");
+                expect("exponent digits");
             while (ch >= '0' && ch <= '9') {
                 exp_val = exp_val * 10 + ch - '0';
                 ch = *p++;
@@ -2027,7 +2032,7 @@ void parse_number(const char *p)
                     ch = *p++;
                 }
                 if (ch < '0' || ch > '9')
-                    error("exponent digits expected");
+                    expect("exponent digits");
                 while (ch >= '0' && ch <= '9') {
                     if (q >= token_buf + STRING_MAX_SIZE)
                         goto num_too_long;
@@ -2274,7 +2279,7 @@ static inline void next_nomacro1(void)
             b = (char)b; 
         tokc.i = b;
         if (ch != '\'')
-            expect("\'");
+            error("unterminated character constant");
         minp();
         break;
     case '\"':
@@ -7080,11 +7085,12 @@ void tcc_define_symbol(TCCState *s1, const char *sym, const char *value)
     if (!value) 
         value = "1";
     pstrcat(bf->buffer, IO_BUF_SIZE, value);
-
+    
     /* init file structure */
     bf->fd = -1;
     bf->buf_ptr = bf->buffer;
     bf->buf_end = bf->buffer + strlen(bf->buffer);
+    *bf->buf_end = CH_EOB;
     bf->filename[0] = '\0';
     bf->line_num = 1;
     file = bf;
