@@ -8894,8 +8894,17 @@ int tcc_set_warning(TCCState *s, const char *warning_name, int value)
     return 0;
 }
 
-
 #if !defined(LIBTCC)
+
+static void tcc_reset_warnings(TCCState *s)
+{
+    int i;
+    const WarningDef *p;
+
+    for(i = 0, p = warning_defs; i < countof(warning_defs); i++, p++) {
+        *(int *)((uint8_t *)s + p->offset) = 0;
+    }
+}
 
 /* extract the basename of a file */
 static const char *tcc_basename(const char *name)
@@ -8941,6 +8950,7 @@ void help(void)
            "  -bench      output compilation statistics\n"
  	   "  -run        run compiled source\n"
            "  -Wwarning   set or reset (with 'no-' prefix) 'warning'\n"
+           "  -w          disable all warnings\n"
            "Preprocessor options:\n"
            "  -Idir       add include path 'dir'\n"
            "  -Dsym[=val] define 'sym' with value 'val'\n"
@@ -8999,6 +9009,7 @@ enum {
     TCC_OPTION_rdynamic,
     TCC_OPTION_run,
     TCC_OPTION_v,
+    TCC_OPTION_w,
 };
 
 static const TCCOption tcc_options[] = {
@@ -9031,6 +9042,7 @@ static const TCCOption tcc_options[] = {
     { "nostdlib", TCC_OPTION_nostdlib, 0 },
     { "print-search-dirs", TCC_OPTION_print_search_dirs, 0 }, 
     { "v", TCC_OPTION_v, 0 },
+    { "w", TCC_OPTION_w, 0 },
     { NULL },
 };
 
@@ -9206,6 +9218,9 @@ int main(int argc, char **argv)
                     if (tcc_set_warning(s, p, value) < 0 && s->warn_unsupported)
                         goto unsupported_option;
                 }
+                break;
+            case TCC_OPTION_w:
+                tcc_reset_warnings(s);
                 break;
             case TCC_OPTION_rdynamic:
                 s->rdynamic = 1;
