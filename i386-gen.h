@@ -47,6 +47,7 @@ enum {
 /* function call context */
 typedef struct GFuncContext {
     int args_size;
+    int func_call; /* func call type (FUNC_STDCALL or FUNC_CDECL) */
 } GFuncContext;
 
 /******************************************************/

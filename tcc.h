@@ -57,6 +57,23 @@ typedef struct Reloc {
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
 #define SYM_FIRST_ANOM (1 << (31 - VT_STRUCT_SHIFT)) /* first anonymous sym */
 
+/* stored in 'Sym.c' field */
+#define FUNC_NEW       1 /* ansi function prototype */
+#define FUNC_OLD       2 /* old function prototype */
+#define FUNC_ELLIPSIS  3 /* ansi function prototype with ... */
+
+/* stored in 'Sym.r' field */
+#define FUNC_CDECL     0 /* standard c call */
+#define FUNC_STDCALL   1 /* pascal c call */
+
+/* field 'Sym.t' for macros */
+#define MACRO_OBJ      0 /* object like macro */
+#define MACRO_FUNC     1 /* function like macro */
+
+/* type_decl() types */
+#define TYPE_ABSTRACT  1 /* type without variable */
+#define TYPE_DIRECT    2 /* type with variable */
+
 
 /* loc : local variable index
    ind : output code index
