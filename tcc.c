@@ -303,8 +303,8 @@ Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags)
 {
     Section *sec;
 
-    sec = tcc_mallocz(sizeof(Section));
-    pstrcpy(sec->name, sizeof(sec->name), name);
+    sec = tcc_mallocz(sizeof(Section) + strlen(name));
+    strcpy(sec->name, name);
     sec->sh_type = sh_type;
     sec->sh_flags = sh_flags;
     switch(sh_type) {

@@ -100,9 +100,9 @@ typedef struct Section {
     int nb_hashed_syms;      /* used to resize the hash table */
     struct Section *link;    /* link to another section */
     struct Section *reloc;   /* corresponding section for relocation, if any */
-    struct Section *hash;     /* hash table for symbols */
+    struct Section *hash;    /* hash table for symbols */
     struct Section *next;
-    char name[64];           /* section name */
+    char name[1];            /* section name */
 } Section;
 
 typedef struct DLLReference {
