@@ -69,6 +69,11 @@ typedef struct Section {
     char name[64];           /* section name */
 } Section;
 
+typedef struct DLLReference {
+    int level;
+    char name[1];
+} DLLReference;
+
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
 #define SYM_FIRST_ANOM (1 << (31 - VT_STRUCT_SHIFT)) /* first anonymous sym */
@@ -95,9 +100,8 @@ typedef struct Section {
 
 /* sections */
 /* XXX: suppress first_section */
-Section *first_section, **sections;
+Section **sections;
 int nb_sections; /* number of sections, including first dummy section */
-int nb_allocated_sections;
 Section *text_section, *data_section, *bss_section; /* predefined sections */
 Section *cur_text_section; /* current section where function code is
                               generated */
@@ -106,9 +110,27 @@ Section *bounds_section; /* contains global data bound description */
 Section *lbounds_section; /* contains local data bound description */
 /* symbol sections */
 Section *symtab_section, *strtab_section;
+/* temporary dynamic symbol sections (for dll loading) */
+Section *dynsymtab_section, *dynstrtab_section;
+/* exported dynamic symbol section */
+Section *dynsym;
+/* got handling */
+Section *got;
+unsigned long *got_offsets;
+int nb_got_offsets;
+int nb_plt_entries;
+
+
+/* array of all loaded dlls (including those referenced by loaded
+   dlls) */
+DLLReference **loaded_dlls;
+int nb_loaded_dlls;
 
 /* debug sections */
 Section *stab_section, *stabstr_section;
+
+char **library_paths;
+int nb_library_paths;
 
 /* loc : local variable index
    ind : output code index
