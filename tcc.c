@@ -348,10 +348,16 @@ void expect(const char *msg)
     error("%s expected", msg);
 }
 
-void warning(const char *msg)
+void warning(const char *fmt, ...)
 {
+    va_list ap;
+
+    va_start(ap, fmt);
     printline();
-    fprintf(stderr, "warning: %s\n", msg);
+    fprintf(stderr, "warning: ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
 }
 
 void skip(int c)
@@ -2748,7 +2754,7 @@ int ist(void)
             next();
         basic_type1:
             if ((t & VT_BTYPE) != 0)
-                error("too many basic types %x", t);
+                error("too many basic types");
             t |= u;
             break;
         case TOK_VOID:
@@ -3302,7 +3308,7 @@ void unary(void)
             }
 #endif
             if (sa)
-                error("too few arguments to function %x", sa->t);
+                error("too few arguments to function");
             skip(')');
             gfunc_call(&gf);
             /* return value */
@@ -4041,7 +4047,7 @@ int decl_initializer_alloc(int t, int has_init)
         level = 0;
         while (level > 0 || (tok != ',' && tok != ';')) {
             if (tok < 0)
-                error("unexpect end of file in initializer");
+                error("unexpected end of file in initializer");
             tok_add2(&init_str, &init_len, tok, &tokc);
             if (tok == '{')
                 level++;
