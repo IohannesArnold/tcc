@@ -321,6 +321,41 @@ void dynarray_add(void ***ptab, int *nb_ptr, void *data)
     *nb_ptr = nb;
 }
 
+/* symbol allocator */
+static Sym *__sym_malloc(void)
+{
+    Sym *sym_pool, *sym, *last_sym;
+    int i;
+
+    sym_pool = tcc_malloc(SYM_POOL_NB * sizeof(Sym));
+
+    last_sym = sym_free_first;
+    sym = sym_pool;
+    for(i = 0; i < SYM_POOL_NB; i++) {
+        sym->next = last_sym;
+        last_sym = sym;
+        sym++;
+    }
+    sym_free_first = last_sym;
+    return last_sym;
+}
+
+static inline Sym *sym_malloc(void)
+{
+    Sym *sym;
+    sym = sym_free_first;
+    if (!sym)
+        sym = __sym_malloc();
+    sym_free_first = sym->next;
+    return sym;
+}
+
+static inline void sym_free(Sym *sym)
+{
+    sym->next = sym_free_first;
+    sym_free_first = sym;
+}
+
 Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags)
 {
     Section *sec;
@@ -739,21 +774,6 @@ void cstr_free(CString *cstr)
 
 #define cstr_reset(cstr) cstr_free(cstr)
 
-static CString *cstr_dup(CString *cstr1)
-{
-    CString *cstr;
-    int size;
-
-    cstr = tcc_malloc(sizeof(CString));
-    size = cstr1->size;
-    cstr->size = size;
-    cstr->size_allocated = size;
-    cstr->data_allocated = tcc_malloc(size);
-    cstr->data = cstr->data_allocated;
-    memcpy(cstr->data_allocated, cstr1->data_allocated, size);
-    return cstr;
-}
-
 /* XXX: unicode ? */
 static void add_char(CString *cstr, int c)
 {
@@ -877,7 +897,7 @@ char *get_tok_str(int v, CValue *cv)
 static Sym *sym_push2(Sym **ps, int v, int t, int c)
 {
     Sym *s;
-    s = tcc_malloc(sizeof(Sym));
+    s = sym_malloc();
     s->v = v;
     s->type.t = t;
     s->c = c;
@@ -985,7 +1005,7 @@ static void sym_pop(Sym **ptop, Sym *b)
                 ps = &ts->sym_identifier;
             *ps = s->prev_tok;
         }
-        tcc_free(s);
+        sym_free(s);
         s = ss;
     }
     *ptop = b;
@@ -1444,11 +1464,13 @@ static inline int tok_ext_size(int t)
     case TOK_CUINT:
     case TOK_CCHAR:
     case TOK_LCHAR:
-    case TOK_STR:
-    case TOK_LSTR:
     case TOK_CFLOAT:
     case TOK_LINENUM:
+        return 1;
+    case TOK_STR:
+    case TOK_LSTR:
     case TOK_PPNUM:
+        error("unsupported token");
         return 1;
     case TOK_CDOUBLE:
     case TOK_CLLONG:
@@ -1473,48 +1495,6 @@ static inline void tok_str_new(TokenString *s)
 
 static void tok_str_free(int *str)
 {
-    const int *p;
-    CString *cstr;
-    int t;
-
-    p = str;
-    for(;;) {
-        t = *p;
-        /* NOTE: we test zero separately so that GCC can generate a
-           table for the following switch */
-        if (t == 0)
-            break;
-        switch(t) {
-        case TOK_CINT:
-        case TOK_CUINT:
-        case TOK_CCHAR:
-        case TOK_LCHAR:
-        case TOK_CFLOAT:
-        case TOK_LINENUM:
-            p += 2;
-            break;
-        case TOK_PPNUM:
-        case TOK_STR:
-        case TOK_LSTR:
-            /* XXX: use a macro to be portable on 64 bit ? */
-            cstr = (CString *)p[1];
-            cstr_free(cstr);
-            tcc_free(cstr);
-            p += 2;
-            break;
-        case TOK_CDOUBLE:
-        case TOK_CLLONG:
-        case TOK_CULLONG:
-            p += 3;
-            break;
-        case TOK_CLDOUBLE:
-            p += 1 + (LDOUBLE_SIZE / 4);
-            break;
-        default:
-            p++;
-            break;
-        }
-    }
     tcc_free(str);
 }
 
@@ -1570,7 +1550,22 @@ static void tok_str_add2(TokenString *s, int t, CValue *cv)
     case TOK_PPNUM:
     case TOK_STR:
     case TOK_LSTR:
-        str[len++] = (int)cstr_dup(cv->cstr);
+        {
+            int nb_words;
+            CString *cstr;
+
+            nb_words = (sizeof(CString) + cv->cstr->size + 3) >> 2;
+            while ((len + nb_words) > s->allocated_len)
+                str = tok_str_realloc(s);
+            cstr = (CString *)(str + len);
+            cstr->data = NULL;
+            cstr->size = cv->cstr->size;
+            cstr->data_allocated = NULL;
+            cstr->size_allocated = cstr->size;
+            memcpy((char *)cstr + sizeof(CString), 
+                   cv->cstr->data, cstr->size);
+            len += nb_words;
+        }
         break;
     case TOK_CDOUBLE:
     case TOK_CLLONG:
@@ -1636,10 +1631,14 @@ static void tok_str_add_tok(TokenString *s)
     case TOK_LCHAR:                             \
     case TOK_CFLOAT:                            \
     case TOK_LINENUM:                           \
+        cv.tab[0] = *p++;                       \
+        break;                                  \
     case TOK_STR:                               \
     case TOK_LSTR:                              \
     case TOK_PPNUM:                             \
-        cv.tab[0] = *p++;                       \
+        cv.cstr = (CString *)p;                 \
+        cv.cstr->data = (char *)p + sizeof(CString);\
+        p += (sizeof(CString) + cv.cstr->size + 3) >> 2;\
         break;                                  \
     case TOK_CDOUBLE:                           \
     case TOK_CLLONG:                            \
@@ -1700,7 +1699,7 @@ void free_defines(Sym *b)
         v = top->v;
         if (v >= TOK_IDENT && v < tok_ident)
             table_ident[v - TOK_IDENT]->sym_define = NULL;
-        tcc_free(top);
+        sym_free(top);
         top = top1;
     }
     define_stack = b;
@@ -1753,7 +1752,7 @@ static void label_pop(Sym **ptop, Sym *slast)
         }
         /* remove label */
         table_ident[s->v - TOK_IDENT]->sym_label = s->prev_tok;
-        tcc_free(s);
+        sym_free(s);
     }
     *ptop = slast;
 }
@@ -1869,17 +1868,37 @@ static void parse_define(void)
     define_push(v, t, str.str, first);
 }
 
+static inline int hash_cached_include(int type, const char *filename)
+{
+    const unsigned char *s;
+    unsigned int h;
+
+    h = TOK_HASH_INIT;
+    h = TOK_HASH_FUNC(h, type);
+    s = filename;
+    while (*s) {
+        h = TOK_HASH_FUNC(h, *s);
+        s++;
+    }
+    h &= (CACHED_INCLUDES_HASH_SIZE - 1);
+    return h;
+}
+
 /* XXX: use a token or a hash table to accelerate matching ? */
 static CachedInclude *search_cached_include(TCCState *s1,
                                             int type, const char *filename)
 {
     CachedInclude *e;
-    int i;
-
-    for(i = 0;i < s1->nb_cached_includes; i++) {
-        e = s1->cached_includes[i];
+    int i, h;
+    h = hash_cached_include(type, filename);
+    i = s1->cached_includes_hash[h];
+    for(;;) {
+        if (i == 0)
+            break;
+        e = s1->cached_includes[i - 1];
         if (e->type == type && !strcmp(e->filename, filename))
             return e;
+        i = e->hash_next;
     }
     return NULL;
 }
@@ -1888,6 +1907,7 @@ static inline void add_cached_include(TCCState *s1, int type,
                                       const char *filename, int ifndef_macro)
 {
     CachedInclude *e;
+    int h;
 
     if (search_cached_include(s1, type, filename))
         return;
@@ -1901,6 +1921,10 @@ static inline void add_cached_include(TCCState *s1, int type,
     strcpy(e->filename, filename);
     e->ifndef_macro = ifndef_macro;
     dynarray_add((void ***)&s1->cached_includes, &s1->nb_cached_includes, e);
+    /* add in hash table */
+    h = hash_cached_include(type, filename);
+    e->hash_next = s1->cached_includes_hash[h];
+    s1->cached_includes_hash[h] = s1->nb_cached_includes;
 }
 
 /* is_bof is true if first non space token at beginning of file */
@@ -3242,7 +3266,7 @@ static int macro_subst_tok(TokenString *tok_str,
             while (sa) {
                 sa1 = sa->prev;
                 tok_str_free((int *)sa->c);
-                tcc_free(sa);
+                sym_free(sa);
                 sa = sa1;
             }
             mstr_allocated = 1;
@@ -3252,7 +3276,7 @@ static int macro_subst_tok(TokenString *tok_str,
         /* pop nested defined symbol */
         sa1 = *nested_list;
         *nested_list = sa1->prev;
-        tcc_free(sa1);
+        sym_free(sa1);
         if (mstr_allocated)
             tok_str_free(mstr);
     }
@@ -8677,10 +8701,12 @@ int tcc_relocate(TCCState *s1)
     
     tcc_add_runtime(s1);
 
-    build_got_entries(s1);
-    
     relocate_common_syms();
 
+    tcc_add_linker_symbols(s1);
+
+    build_got_entries(s1);
+    
     /* compute relocation address : section are relocated in place. We
        also alloc the bss space */
     for(i = 1; i < s1->nb_sections; i++) {

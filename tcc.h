@@ -191,9 +191,12 @@ typedef struct TokenString {
    inclusion if the include file is protected by #ifndef ... #endif */
 typedef struct CachedInclude {
     int ifndef_macro;
+    int hash_next; /* -1 if none */
     char type; /* '"' or '>' to give include type */
     char filename[1]; /* path specified in #include */
 } CachedInclude;
+
+#define CACHED_INCLUDES_HASH_SIZE 512
 
 /* parser */
 static struct BufferedFile *file;
@@ -221,7 +224,9 @@ static int parse_flags;
 static Section *text_section, *data_section, *bss_section; /* predefined sections */
 static Section *cur_text_section; /* current section where function code is
                                      generated */
+#ifdef CONFIG_TCC_ASM
 static Section *last_text_section; /* to handle .previous asm directive */
+#endif
 /* bound check related sections */
 static Section *bounds_section; /* contains global data bound description */
 static Section *lbounds_section; /* contains local data bound description */
@@ -256,6 +261,9 @@ static char *funcname;
 static Sym *global_stack, *local_stack;
 static Sym *define_stack;
 static Sym *global_label_stack, *local_label_stack;
+/* symbol allocator */
+#define SYM_POOL_NB (8192 / sizeof(Sym))
+static Sym *sym_free_first;
 
 static SValue vstack[VSTACK_SIZE], *vtop;
 /* some predefined types */
@@ -355,6 +363,9 @@ typedef struct TCCState {
 
     /* see ifdef_stack_ptr */
     int ifdef_stack[IFDEF_STACK_SIZE];
+
+    /* see cached_includes */
+    int cached_includes_hash[CACHED_INCLUDES_HASH_SIZE];
 } TCCState;
 
 /* The current value can be: */

@@ -1017,7 +1017,7 @@ void tcc_add_runtime(TCCState *s1)
 /* add various standard linker symbols (must be done after the
    sections are filled (for example after allocating common
    symbols)) */
-static void tcc_add_linker_symbols(TCCState *s1)
+void tcc_add_linker_symbols(TCCState *s1)
 {
     char buf[1024];
     int i;
