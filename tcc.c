@@ -117,7 +117,9 @@ int section_num;
 Section *text_section, *data_section, *bss_section; /* predefined sections */
 Section *cur_text_section; /* current section where function code is
                               generated */
+/* bound check related sections */
 Section *bounds_section; /* contains global data bound description */
+Section *lbounds_section; /* contains local data bound description */
 /* debug sections */
 Section *stab_section, *stabstr_section, *symtab_section, *strtab_section;
 
@@ -176,6 +178,7 @@ void decl(int l);
 void decl_initializer(int t, int r, int c, int first, int size_only);
 int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init);
 int gv(int rc);
+void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
 void save_regs(void);
 void save_reg(int r);
@@ -2105,6 +2108,22 @@ void gaddrof(void)
         vtop->r = (vtop->r & ~VT_VALMASK) | VT_LOCAL | VT_LVAL;
 }
 
+/* generate lvalue bound code */
+void gbound(void)
+{
+    vtop->r &= ~VT_MUSTBOUND;
+    /* if lvalue, then use checking code before dereferencing */
+    if (vtop->r & VT_LVAL) {
+        gaddrof();
+        vpushi(0);
+#ifdef ENABLE_BOUNDS_CHECK
+        gen_bounded_ptr_add1();
+        gen_bounded_ptr_add2(1);
+#endif
+        vtop->r |= VT_LVAL;
+    }
+}
+
 /* store vtop a register belonging to class 'rc'. lvalues are
    converted to values. Cannot be used if cannot be converted to
    register value (such as structures). */
@@ -2143,6 +2162,9 @@ int gv(int rc)
             data_offset += size << 2;
             data_section->data_ptr = (unsigned char *)data_offset;
         }
+        if (vtop->r & VT_MUSTBOUND) 
+            gbound();
+
         r = vtop->r & VT_VALMASK;
         /* need to reload if:
            - constant
@@ -2202,6 +2224,33 @@ int gv(int rc)
     return r;
 }
 
+/* generate vtop[-1] and vtop[0] in resp. classes rc1 and rc2 */
+void gv2(int rc1, int rc2)
+{
+    /* generate more generic register first */
+    if (rc1 <= rc2) {
+        vswap();
+        gv(rc1);
+        vswap();
+        gv(rc2);
+        /* test if reload is needed for first register */
+        if ((vtop[-1].r & VT_VALMASK) >= VT_CONST) {
+            vswap();
+            gv(rc1);
+            vswap();
+        }
+    } else {
+        gv(rc2);
+        vswap();
+        gv(rc1);
+        vswap();
+        /* test if reload is needed for first register */
+        if ((vtop[0].r & VT_VALMASK) >= VT_CONST) {
+            gv(rc2);
+        }
+    }
+}
+
 /* expand long long on stack in two int registers */
 void lexpand(void)
 {
@@ -2220,10 +2269,7 @@ void lexpand(void)
 /* build a long long from two ints */
 void lbuild(int t)
 {
-    vswap();
-    gv(RC_INT);
-    vswap();
-    gv(RC_INT);
+    gv2(RC_INT, RC_INT);
     vtop[-1].r2 = vtop[0].r;
     vtop[-1].t = t;
     vpop();
@@ -2657,13 +2703,15 @@ void gen_op(int op)
             gen_op('*');
 #ifdef ENABLE_BOUNDS_CHECK
             if (do_bounds_check) {
-                /* if bounded pointers, we generate a special code to test bounds */
+                /* if bounded pointers, we generate a special code to
+                   test bounds */
                 if (op == '-') {
                     vpushi(0);
                     vswap();
                     gen_op('-');
                 }
-                gen_bounded_ptr_add();
+                gen_bounded_ptr_add1();
+                gen_bounded_ptr_add2(0);
             } else 
 #endif
                 gen_opc(op);
@@ -3270,10 +3318,16 @@ void vstore(void)
         /* store result */
         vstore();
     } else {
+        /* bound check case */
+        if (vtop[-1].r & VT_MUSTBOUND) {
+            vswap();
+            gbound();
+            vswap();
+        }
         rc = RC_INT;
         if (is_float(ft))
             rc = RC_FLOAT;
-        r = gv(rc);  /* generate value (XXX: move that to store code) */
+        r = gv(rc);  /* generate value */
         /* if lvalue was saved on stack, must read it */
         if ((vtop[-1].r & VT_VALMASK) == VT_LLOCAL) {
             SValue sv;
@@ -3810,8 +3864,15 @@ void indir(void)
     if (vtop->r & VT_LVAL)
         gv(RC_INT);
     vtop->t = pointed_type(vtop->t);
-    if (!(vtop->t & VT_ARRAY)) /* an array is never an lvalue */
+    /* an array is never an lvalue */
+    if (!(vtop->t & VT_ARRAY)) {
         vtop->r |= VT_LVAL;
+        /* if bound checking, the referenced pointer must be checked */
+#ifdef ENABLE_BOUNDS_CHECK
+        if (do_bounds_check) 
+            vtop->r |= VT_MUSTBOUND;
+#endif
+    }
 }
 
 /* pass a parameter to a function and do type checking and casting */
@@ -4428,7 +4489,7 @@ void block(int *bsym, int *csym, int *case_sym, int *def_sym, int case_reg)
             } else {
                 gv(RC_IRET);
             }
-            vpop();
+            vtop--; /* NOT vpop() because on x86 it would flush the fp stack */
         }
         skip(';');
         rsym = gjmp(rsym); /* jmp */
@@ -4964,8 +5025,27 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
     if (ad->aligned > align)
         align = ad->aligned;
     if ((r & VT_VALMASK) == VT_LOCAL) {
+#ifdef ENABLE_BOUNDS_CHECK
+        if (do_bounds_check && (t & VT_ARRAY)) 
+            loc--;
+#endif
         loc = (loc - size) & -align;
         addr = loc;
+        /* handles bounds */
+        /* XXX: currently, since we do only one pass, we cannot track
+           '&' operators, so we add only arrays */
+#ifdef ENABLE_BOUNDS_CHECK
+        if (do_bounds_check && (t & VT_ARRAY)) {
+            int *bounds_ptr;
+            /* add padding between regions */
+            loc--;
+            /* then add local bound info */
+            bounds_ptr = (int *)lbounds_section->data_ptr;
+            *bounds_ptr++ = addr;
+            *bounds_ptr++ = size;
+            lbounds_section->data_ptr = (unsigned char *)bounds_ptr;
+        }
+#endif
     } else {
         /* compute section */
         sec = ad->section;
@@ -4989,7 +5069,7 @@ int decl_initializer_alloc(int t, AttributeDef *ad, int r, int has_init)
             int *bounds_ptr;
             /* first, we need to add at least one byte between each region */
             data_offset++;
-            /* then add global data info */
+            /* then add global bound info */
             bounds_ptr = (int *)bounds_section->data_ptr;
             *bounds_ptr++ = addr;
             *bounds_ptr++ = size;
@@ -5851,9 +5931,11 @@ int main(int argc, char **argv)
         } else if (r[1] == 'b') {
             if (!do_bounds_check) {
                 do_bounds_check = 1;
-                /* create bounds section for global data */
+                /* create bounds sections */
                 bounds_section = new_section(".bounds", 
                                              SHT_PROGBITS, SHF_ALLOC);
+                lbounds_section = new_section(".lbounds", 
+                                              SHT_PROGBITS, SHF_ALLOC);
                 /* debug is implied */
                 goto debug_opt;
             }
