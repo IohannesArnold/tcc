@@ -1093,7 +1093,7 @@ static void handle_stray(void)
 
 /* skip the stray and handle the \\n case. Output an error if
    incorrect char after the stray */
-static int handle_stray1(uint8_t *p)
+static int handle_stray1(char *p)
 {
     int c;
 
@@ -1112,6 +1112,18 @@ static int handle_stray1(uint8_t *p)
         c = *p;
     }
     return c;
+}
+
+/* handle just the EOB case, but not stray */
+#define PEEKC_EOB(c, p)\
+{\
+    p++;\
+    c = *p;\
+    if (c == '\\') {\
+        file->buf_ptr = p;\
+        c = handle_eob();\
+        p = file->buf_ptr;\
+    }\
 }
 
 /* handle the complicated stray case */
@@ -1147,7 +1159,7 @@ static void parse_line_comment(void)
 
 void parse_comment(void)
 {
-    uint8_t *p;
+    char *p;
     int c;
     
     /* C comments */
@@ -1238,12 +1250,74 @@ static inline void skip_spaces(void)
         cinp();
 }
 
+/* parse a string without interpreting escapes */
+static char *parse_pp_string(char *p,
+                                int sep, CString *str)
+{
+    int c;
+    p++;
+    for(;;) {
+        c = *p;
+        if (c == sep) {
+            break;
+        } else if (c == '\\') {
+            file->buf_ptr = p;
+            c = handle_eob();
+            p = file->buf_ptr;
+            if (c == CH_EOF) {
+            unterminated_string:
+                /* XXX: indicate line number of start of string */
+                error("missing terminating %c character", sep);
+            } else if (c == '\\') {
+                /* escape : just skip \[\r]\n */
+                PEEKC_EOB(c, p);
+                if (c == '\n') {
+                    file->line_num++;
+                    p++;
+                } else if (c == '\r') {
+                    PEEKC_EOB(c, p);
+                    if (c != '\n')
+                        expect("'\n' after '\r'");
+                    file->line_num++;
+                    p++;
+                } else if (c == CH_EOF) {
+                    goto unterminated_string;
+                } else {
+                    if (str) {
+                        cstr_ccat(str, '\\');
+                        cstr_ccat(str, c);
+                    }
+                    p++;
+                }
+            }
+        } else if (c == '\n') {
+            file->line_num++;
+            goto add_char;
+        } else if (c == '\r') {
+            PEEKC_EOB(c, p);
+            if (c != '\n') {
+                cstr_ccat(str, '\r');
+            } else {
+                file->line_num++;
+                goto add_char;
+            }
+        } else {
+        add_char:
+            if (str)
+                cstr_ccat(str, c);
+            p++;
+        }
+    }
+    p++;
+    return p;
+}
+
 /* skip block of text until #else, #elif or #endif. skip also pairs of
    #if/#endif */
 void preprocess_skip(void)
 {
-    int a, start_of_line, sep, c;
-    uint8_t *p;
+    int a, start_of_line, c;
+    char *p;
 
     p = file->buf_ptr;
     start_of_line = 1;
@@ -1279,41 +1353,7 @@ void preprocess_skip(void)
             /* skip strings */
         case '\"':
         case '\'':
-            sep = c;
-            p++;
-            for(;;) {
-                c = *p;
-                if (c == sep) {
-                    break;
-                } else if (c == '\\') {
-                    file->buf_ptr = p;
-                    c = handle_eob();
-                    p = file->buf_ptr;
-                    if (c == CH_EOF) {
-                        /* XXX: better error message */
-                        error("unterminated string");
-                    } else if (c == '\\') {
-                        /* ignore next char */
-                        p++;
-                        c = *p;
-                        if (c == '\\') {
-                            file->buf_ptr = p;
-                            c = handle_eob();
-                            p = file->buf_ptr;
-                        }
-                        if (c == '\n')
-                            file->line_num++;
-                        else if (c != CH_EOF)
-                            p++;
-                    }
-                } else if (c == '\n') {
-                    file->line_num++;
-                    p++;
-                } else {
-                    p++;
-                }
-            }
-            p++;
+            p = parse_pp_string(p, c, NULL);
             break;
             /* skip comments */
         case '/':
@@ -2101,106 +2141,105 @@ static void preprocess(int is_bof)
     parse_flags = saved_parse_flags;
 }
 
-/* read a number in base b */
-static int getn(int b)
+/* evaluate escape codes in a string. */
+static void parse_escape_string(CString *outstr, const char *buf, int is_long)
 {
-    int n, t;
-    n = 0;
-    while (1) {
-        if (ch >= 'a' && ch <= 'f')
-            t = ch - 'a' + 10;
-        else if (ch >= 'A' && ch <= 'F')
-            t = ch - 'A' + 10;
-        else if (isnum(ch))
-            t = ch - '0';
-        else
-            break;
-        if (t < 0 || t >= b)
-            break;
-        n = n * b + t;
-        inp();
-    }
-    return n;
-}
+    int c, n;
+    const char *p;
 
-/* read a character for string or char constant and eval escape codes */
-static int getq(void)
-{
-    int c;
-
- redo:
-    c = ch;
-    inp();
-    if (c == '\\') {
-        switch(ch) {
-        case '0': case '1': case '2': case '3':
-        case '4': case '5': case '6': case '7':
-            /* at most three octal digits */
-            c = ch - '0';
-            inp();
-            if (isoct(ch)) {
-                c = c * 8 + ch - '0';
-                inp();
-                if (isoct(ch)) {
-                    c = c * 8 + ch - '0';
-                    inp();
+    p = buf;
+    for(;;) {
+        c = *p;
+        if (c == '\0')
+            break;
+        if (c == '\\') {
+            p++;
+            /* escape */
+            c = *p;
+            switch(c) {
+            case '0': case '1': case '2': case '3':
+            case '4': case '5': case '6': case '7':
+                /* at most three octal digits */
+                n = c - '0';
+                p++;
+                c = *p;
+                if (isoct(c)) {
+                    n = n * 8 + c - '0';
+                    p++;
+                    c = *p;
+                    if (isoct(c)) {
+                        n = n * 8 + c - '0';
+                        p++;
+                    }
                 }
+                c = n;
+                goto add_char_nonext;
+            case 'x':
+                p++;
+                n = 0;
+                for(;;) {
+                    c = *p;
+                    if (c >= 'a' && c <= 'f')
+                        c = c - 'a' + 10;
+                    else if (c >= 'A' && c <= 'F')
+                        c = c - 'A' + 10;
+                    else if (isnum(c))
+                        c = c - '0';
+                    else
+                        break;
+                    n = n * 16 + c;
+                    p++;
+                }
+                c = n;
+                goto add_char_nonext;
+            case 'a':
+                c = '\a';
+                break;
+            case 'b':
+                c = '\b';
+                break;
+            case 'f':
+                c = '\f';
+                break;
+            case 'n':
+                c = '\n';
+                break;
+            case 'r':
+                c = '\r';
+                break;
+            case 't':
+                c = '\t';
+                break;
+            case 'v':
+                c = '\v';
+                break;
+            case 'e':
+                if (!gnu_ext)
+                    goto invalid_escape;
+                c = 27;
+                break;
+            case '\'':
+            case '\"':
+            case '\\': 
+            case '?':
+                break;
+            default:
+            invalid_escape:
+                error("invalid escaped char");
             }
-            return c;
-        case 'x':
-            inp();
-            return getn(16);
-        case 'a':
-            c = '\a';
-            break;
-        case 'b':
-            c = '\b';
-            break;
-        case 'f':
-            c = '\f';
-            break;
-        case 'n':
-            c = '\n';
-            break;
-        case 'r':
-            c = '\r';
-            break;
-        case 't':
-            c = '\t';
-            break;
-        case 'v':
-            c = '\v';
-            break;
-        case 'e':
-            if (!gnu_ext)
-                goto invalid_escape;
-            c = 27;
-            break;
-        case '\'':
-        case '\"':
-        case '\\': 
-        case '?':
-            c = ch;
-            break;
-        case '\n':
-            inp();
-            goto redo;
-        case '\r':
-            inp();
-            if (ch != '\n')
-                goto invalid_escape;
-            inp();
-            goto redo;
-        default:
-        invalid_escape:
-            error("invalid escaped char");
         }
-        inp();
-    } else if (c == '\r' && ch == '\n') {
-        inp();
-        c = '\n';
+        p++;
+    add_char_nonext:
+        if (!is_long)
+            cstr_ccat(outstr, c);
+        else
+            cstr_wccat(outstr, c);
     }
-    return c;
+    /* add a trailing '\0' */
+    if (!is_long)
+        cstr_ccat(outstr, '\0');
+    else
+        cstr_wccat(outstr, '\0');
 }
 
 /* we use 64 bit numbers */
@@ -2509,9 +2548,9 @@ void parse_number(const char *p)
 /* return next token without macro substitution */
 static inline void next_nomacro1(void)
 {
-    int b, t, c;
+    int t, c, is_long;
     TokenSym *ts;
-    uint8_t *p, *p1;
+    char *p, *p1;
     unsigned int h;
 
     p = file->buf_ptr;
@@ -2683,11 +2722,8 @@ static inline void next_nomacro1(void)
             goto parse_ident_fast;
         } else {
             PEEKC(c, p);
-            if (c == '\'') {
-                tok = TOK_LCHAR;
-                goto char_const; 
-            } else if (c == '\"') {
-                tok = TOK_LSTR;
+            if (c == '\'' || c == '\"') {
+                is_long = 1;
                 goto str_const;
             } else {
                 cstr_reset(&tokcstr);
@@ -2736,42 +2772,51 @@ static inline void next_nomacro1(void)
         }
         break;
     case '\'':
-        tok = TOK_CCHAR;
-    char_const:
-        file->buf_ptr = p;
-        inp();
-        b = getq();
-        /* this cast is needed if >= 128 */
-        if (tok == TOK_CCHAR)
-            b = (char)b; 
-        tokc.i = b;
-        if (ch != '\'')
-            error("unterminated character constant");
-        p = file->buf_ptr;
-        p++;
-        break;
     case '\"':
-        tok = TOK_STR;
+        is_long = 0;
     str_const:
-        file->buf_ptr = p;
-        inp();
-        cstr_reset(&tokcstr);
-        while (ch != '\"') {
-            b = getq();
-            if (ch == CH_EOF)
-                error("unterminated string");
-            if (tok == TOK_STR)
-                cstr_ccat(&tokcstr, b);
-            else
-                cstr_wccat(&tokcstr, b);
+        {
+            CString str;
+            int sep;
+
+            sep = c;
+
+            /* parse the string */
+            cstr_new(&str);
+            p = parse_pp_string(p, sep, &str);
+            cstr_ccat(&str, '\0');
+            
+            /* eval the escape (should be done as TOK_PPNUM) */
+            cstr_reset(&tokcstr);
+            parse_escape_string(&tokcstr, str.data, is_long);
+            cstr_free(&str);
+
+            if (sep == '\'') {
+                int char_size;
+                /* XXX: make it portable */
+                if (!is_long)
+                    char_size = 1;
+                else
+                    char_size = sizeof(int);
+                if (tokcstr.size <= char_size)
+                    error("empty character constant");
+                if (tokcstr.size > 2 * char_size)
+                    warning("multi-character character constant");
+                if (!is_long) {
+                    tokc.i = *(int8_t *)tokcstr.data;
+                    tok = TOK_CCHAR;
+                } else {
+                    tokc.i = *(int *)tokcstr.data;
+                    tok = TOK_LCHAR;
+                }
+            } else {
+                tokc.cstr = &tokcstr;
+                if (!is_long)
+                    tok = TOK_STR;
+                else
+                    tok = TOK_LSTR;
+            }
         }
-        if (tok == TOK_STR)
-            cstr_ccat(&tokcstr, '\0');
-        else
-            cstr_wccat(&tokcstr, '\0');
-        tokc.cstr = &tokcstr;
-        p = file->buf_ptr;
-        p++;
         break;
 
     case '<':
@@ -6983,7 +7028,7 @@ static void decl_designator(CType *type, Section *sec, unsigned long c,
     /* XXX: make it more general */
     if (!size_only && nb_elems > 1) {
         unsigned long c_end;
-        uint8_t *src, *dst;
+        char *src, *dst;
         int i;
 
         if (!sec)
