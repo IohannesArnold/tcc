@@ -101,12 +101,13 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define VT_LVAL      0x0100  /* var is an lvalue */
 #define VT_FORWARD   0x0200  /* value is forward reference */
 #define VT_MUSTCAST  0x0400  /* value must be casted to be correct (used for
-                               char/short stored in integer registers) */
+                                char/short stored in integer registers) */
 #define VT_MUSTBOUND 0x0800  /* bound checking must be done before
                                 dereferencing value */
 #define VT_LVAL_BYTE     0x1000  /* lvalue is a byte */
 #define VT_LVAL_SHORT    0x2000  /* lvalue is a short */
 #define VT_LVAL_UNSIGNED 0x4000  /* lvalue is unsigned */
+#define VT_LVAL_TYPE     (VT_LVAL_BYTE | VT_LVAL_SHORT | VT_LVAL_UNSIGNED)
 
 /* types */
 #define VT_STRUCT_SHIFT 16   /* structure/enum name shift (16 bits left) */
