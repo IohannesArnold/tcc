@@ -2380,14 +2380,16 @@ void gbound(void)
     vtop->r &= ~VT_MUSTBOUND;
     /* if lvalue, then use checking code before dereferencing */
     if (vtop->r & VT_LVAL) {
-        lval_type = vtop->r & (VT_LVAL_TYPE | VT_LVAL);
-        gaddrof();
-        vpushi(0);
-#ifdef CONFIG_TCC_BCHECK
-        gen_bounded_ptr_add1();
-        gen_bounded_ptr_add2(1);
-#endif
-        vtop->r |= lval_type;
+        /* if not VT_BOUNDED value, then make one */
+        if (!(vtop->r & VT_BOUNDED)) {
+            lval_type = vtop->r & (VT_LVAL_TYPE | VT_LVAL);
+            gaddrof();
+            vpushi(0);
+            gen_bounded_ptr_add();
+            vtop->r |= lval_type;
+        }
+        /* then check for dereferencing */
+        gen_bounded_ptr_deref();
     }
 }
 #endif
@@ -3087,9 +3089,8 @@ void gen_op(int op)
                     vswap();
                     gen_op('-');
                 }
-                gen_bounded_ptr_add1();
-                gen_bounded_ptr_add2(0);
-            } else 
+                gen_bounded_ptr_add();
+            } else
 #endif
             {
                 gen_opic(op);
