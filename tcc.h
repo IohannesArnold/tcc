@@ -9,10 +9,8 @@
 #define VSTACK_SIZE         64
 #define STRING_MAX_SIZE     1024
 
-#define TOK_HASH_SIZE       2048 /* must be a power of two */
+#define TOK_HASH_SIZE       8192 /* must be a power of two */
 #define TOK_ALLOC_INCR      512  /* must be a power of two */
-#define TOK_STR_ALLOC_INCR_BITS 6
-#define TOK_STR_ALLOC_INCR (1 << TOK_STR_ALLOC_INCR_BITS)
 #define TOK_MAX_SIZE        4 /* token max size in int unit when stored in string */
 
 /* token symbol management */
@@ -322,6 +320,9 @@ typedef struct TCCState {
     unsigned long text_addr;
     int has_text_addr;
 
+    /* output format, see TCC_OUTPUT_FORMAT_xxx */
+    int output_format;
+
     /* C language options */
     int char_is_unsigned;
 
@@ -606,7 +607,6 @@ void cstr_cat(CString *cstr, const char *str);
 void cstr_free(CString *cstr);
 void cstr_new(CString *cstr);
 void gexpr(void);
-int save_reg_forced(int r);
 void gen_op(int op);
 void force_charshort_cast(int t);
 void vstore(void);
