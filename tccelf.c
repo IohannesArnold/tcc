@@ -706,7 +706,7 @@ static void put_got_entry(TCCState *s1,
 }
 
 /* build GOT and PLT entries */
-static void build_got_entries(TCCState *s1)
+void build_got_entries(TCCState *s1)
 {
     Section *s, *symtab;
     Elf32_Rel *rel, *rel_end;
