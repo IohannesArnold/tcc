@@ -305,6 +305,11 @@ typedef struct TCCState {
     /* if true, static linking is performed */
     int static_link;
 
+    /* warning switches */
+    int warn_write_strings;
+    int warn_unsupported;
+    int warn_error;
+
     /* error handling */
     void *error_opaque;
     void (*error_func)(void *opaque, const char *msg);
@@ -345,8 +350,6 @@ typedef struct TCCState {
 #define VT_LVAL_TYPE     (VT_LVAL_BYTE | VT_LVAL_SHORT | VT_LVAL_UNSIGNED)
 
 /* types */
-#define VT_STRUCT_SHIFT 12   /* structure/enum name shift (20 bits left) */
-
 #define VT_INT        0  /* integer type */
 #define VT_BYTE       1  /* signed byte type */
 #define VT_SHORT      2  /* short type */
@@ -366,12 +369,16 @@ typedef struct TCCState {
 #define VT_UNSIGNED   0x0010  /* unsigned type */
 #define VT_ARRAY      0x0020  /* array type (also has VT_PTR) */
 #define VT_BITFIELD   0x0040  /* bitfield modifier */
+#define VT_CONSTANT   0x0800  /* const modifier */
+#define VT_VOLATILE   0x1000  /* volatile modifier */
 
 /* storage */
 #define VT_EXTERN  0x00000080  /* extern definition */
 #define VT_STATIC  0x00000100  /* static variable */
 #define VT_TYPEDEF 0x00000200  /* typedef definition */
 #define VT_INLINE  0x00000400  /* inline definition */
+
+#define VT_STRUCT_SHIFT 16   /* shift for bitfield shift values */
 
 /* type mask (except storage) */
 #define VT_STORAGE (VT_EXTERN | VT_STATIC | VT_TYPEDEF | VT_INLINE)
@@ -437,6 +444,14 @@ typedef struct TCCState {
 #define TOK_A_OR  0xfc
 #define TOK_A_SHL 0x81
 #define TOK_A_SAR 0x82
+
+#ifndef offsetof
+#define offsetof(type, field) ((size_t) &((type *)0)->field)
+#endif
+
+#ifndef countof
+#define countof(tab) (sizeof(tab) / sizeof((tab)[0]))
+#endif
 
 /* WARNING: the content of this string encodes token numbers */
 static char tok_two_chars[] = "<=\236>=\235!=\225&&\240||\241++\244--\242==\224<<\1>>\2+=\253-=\255*=\252/=\257%=\245&=\246^=\336|=\374->\313..\250##\266";
