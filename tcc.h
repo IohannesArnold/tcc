@@ -1,5 +1,10 @@
 #include <setjmp.h>
 
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
+
 /* path to find crt1.o, crti.o and crtn.o. Only needed when generating
    executables or dlls */
 #define CONFIG_TCC_CRT_PREFIX "/usr/lib"

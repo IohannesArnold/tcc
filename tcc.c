@@ -55,10 +55,6 @@
 #endif
 #endif
 
-#ifndef O_BINARY
-#define O_BINARY 0
-#endif
-
 #include "libtcc.h"
 
 /* parser debug */
