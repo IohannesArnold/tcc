@@ -305,6 +305,9 @@ typedef struct TCCState {
     /* if true, static linking is performed */
     int static_link;
 
+    /* if true, all symbols are exported */
+    int rdynamic;
+
     /* if true, only link in referenced objects from archive */
     int alacarte_link;
 

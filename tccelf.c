@@ -789,7 +789,7 @@ void tcc_add_runtime(TCCState *s1)
     Section *s;
 
     if (!s1->nostdlib) {
-        snprintf(buf, sizeof(buf), "%s/%s", tcc_lib_path, "libtcc1.o");
+        snprintf(buf, sizeof(buf), "%s/%s", tcc_lib_path, "libtcc1.a");
         tcc_add_file(s1, buf);
     }
 #ifdef CONFIG_TCC_BCHECK
@@ -977,7 +977,7 @@ int tcc_output_file(TCCState *s1, const char *filename)
                                 unsigned long offset;
                                 offset = bss_section->data_offset;
                                 /* XXX: which alignment ? */
-                                offset = (offset + 8 - 1) & -8;
+                                offset = (offset + 16 - 1) & -16;
                                 index = put_elf_sym(s1->dynsym, offset, esym->st_size, 
                                                     esym->st_info, 0, 
                                                     bss_section->sh_num, name);
@@ -996,6 +996,14 @@ int tcc_output_file(TCCState *s1, const char *filename)
                                 error_noabort("undefined symbol '%s'", name);
                             }
                         }
+                    } else if (s1->rdynamic && 
+                               ELF32_ST_BIND(sym->st_info) != STB_LOCAL) {
+                        /* if -rdynamic option, then export all non
+                           local symbols */
+                        name = symtab_section->link->data + sym->st_name;
+                        put_elf_sym(s1->dynsym, sym->st_value, sym->st_size, 
+                                    sym->st_info, 0, 
+                                    sym->st_shndx, name);
                     }
                 }
             
@@ -1013,6 +1021,8 @@ int tcc_output_file(TCCState *s1, const char *filename)
                         name = s1->dynsymtab_section->link->data + esym->st_name;
                         sym_index = find_elf_sym(symtab_section, name);
                         if (sym_index) {
+                            /* XXX: avoid adding a symbol if already
+                               present because of -rdynamic ? */
                             sym = &((Elf32_Sym *)symtab_section->data)[sym_index];
                             put_elf_sym(s1->dynsym, sym->st_value, sym->st_size, 
                                         sym->st_info, 0, 
