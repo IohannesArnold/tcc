@@ -213,9 +213,12 @@ int nb_library_paths;
    anon_sym: anonymous symbol index
 */
 int rsym, anon_sym,
-    prog, ind, loc, const_wanted;
-int global_expr; /* true if compound literals must be allocated
-                    globally (used during initializers parsing */
+    prog, ind, loc;
+
+/* expression generation modifiers */
+int const_wanted; /* true if constant wanted */
+int global_expr;  /* true if compound literals must be allocated
+                     globally (used during initializers parsing */
 int func_vt, func_vc; /* current function return type (used by
                          return instruction) */
 int last_line_num, last_ind, func_ind; /* debug last line number and pc */
