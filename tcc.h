@@ -389,6 +389,7 @@ typedef struct TCCState {
 #define TOK_ARROW    0xcb
 #define TOK_DOTS     0xcc /* three dots */
 #define TOK_SHR      0xcd /* unsigned shift right */
+#define TOK_PPNUM    0xce /* preprocessor number */
 
 #define TOK_SHL   0x01 /* shift left */
 #define TOK_SAR   0x02 /* signed shift right */
