@@ -299,8 +299,8 @@ typedef struct TCCState {
     /* exported dynamic symbol section */
     Section *dynsym;
 
-    /* if true, no standard headers are added */
-    int nostdinc;
+    int nostdinc; /* if true, no standard headers are added */
+    int nostdlib; /* if true, no standard libraries are added */
 
     /* if true, static linking is performed */
     int static_link;

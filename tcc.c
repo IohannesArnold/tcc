@@ -8829,8 +8829,8 @@ int tcc_set_output_type(TCCState *s, int output_type)
 #endif
 
     /* add libc crt1/crti objects */
-    if (output_type == TCC_OUTPUT_EXE || 
-        output_type == TCC_OUTPUT_DLL) {
+    if ((output_type == TCC_OUTPUT_EXE || output_type == TCC_OUTPUT_DLL) &&
+        !s->nostdlib) {
         if (output_type != TCC_OUTPUT_DLL)
             tcc_add_file(s, CONFIG_TCC_CRT_PREFIX "/crt1.o");
         tcc_add_file(s, CONFIG_TCC_CRT_PREFIX "/crti.o");
@@ -8973,6 +8973,7 @@ enum {
     TCC_OPTION_m,
     TCC_OPTION_f,
     TCC_OPTION_nostdinc,
+    TCC_OPTION_nostdlib,
     TCC_OPTION_print_search_dirs,
     TCC_OPTION_rdynamic,
     TCC_OPTION_run,
@@ -9006,6 +9007,7 @@ static const TCCOption tcc_options[] = {
     { "m", TCC_OPTION_m, TCC_OPTION_HAS_ARG },
     { "f", TCC_OPTION_f, TCC_OPTION_HAS_ARG | TCC_OPTION_NOSEP },
     { "nostdinc", TCC_OPTION_nostdinc, 0 },
+    { "nostdlib", TCC_OPTION_nostdlib, 0 },
     { "print-search-dirs", TCC_OPTION_print_search_dirs, 0 }, 
     { "v", TCC_OPTION_v, 0 },
     { NULL },
@@ -9157,6 +9159,9 @@ int main(int argc, char **argv)
                 break;
             case TCC_OPTION_nostdinc:
                 s->nostdinc = 1;
+                break;
+            case TCC_OPTION_nostdlib:
+                s->nostdlib = 1;
                 break;
             case TCC_OPTION_print_search_dirs:
                 print_search_dirs = 1;
