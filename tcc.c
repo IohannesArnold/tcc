@@ -39,6 +39,7 @@
 #include <time.h>
 #ifdef WIN32
 #include <sys/timeb.h>
+#define CONFIG_TCC_STATIC
 #else
 #include <sys/time.h>
 #endif
