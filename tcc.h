@@ -379,6 +379,7 @@ typedef struct TCCState {
 #define VT_BITFIELD   0x0040  /* bitfield modifier */
 #define VT_CONSTANT   0x0800  /* const modifier */
 #define VT_VOLATILE   0x1000  /* volatile modifier */
+#define VT_SIGNED     0x2000  /* signed type */
 
 /* storage */
 #define VT_EXTERN  0x00000080  /* extern definition */
