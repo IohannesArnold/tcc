@@ -11,7 +11,7 @@
 
 #define INCLUDE_STACK_SIZE  32
 #define IFDEF_STACK_SIZE    64
-#define VSTACK_SIZE         64
+#define VSTACK_SIZE         256
 #define STRING_MAX_SIZE     1024
 
 #define TOK_HASH_SIZE       8192 /* must be a power of two */

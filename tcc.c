@@ -3519,7 +3519,7 @@ void vsetc(CType *type, int r, CValue *vc)
 {
     int v;
 
-    if (vtop >= vstack + VSTACK_SIZE)
+    if (vtop >= vstack + (VSTACK_SIZE - 1))
         error("memory full");
     /* cannot let cpu flags if other instruction are generated. Also
        avoid leaving VT_JMP anywhere except on the top of the stack
@@ -3640,7 +3640,7 @@ void vswap(void)
 
 void vpushv(SValue *v)
 {
-    if (vtop >= vstack + VSTACK_SIZE)
+    if (vtop >= vstack + (VSTACK_SIZE - 1))
         error("memory full");
     vtop++;
     *vtop = *v;
