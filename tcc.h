@@ -29,29 +29,40 @@ typedef struct SValue {
     unsigned short r;      /* register + flags */
     unsigned short r2;     /* second register, used for 'long long'
                               type. If not used, set to VT_CONST */
-    CValue c;   /* constant */
+    CValue c;              /* constant, if VT_CONST */
 } SValue;
 
 /* symbol management */
 typedef struct Sym {
     int v;    /* symbol token */
     int t;    /* associated type */
-    int c;    /* associated number */
     int r;    /* associated register */
+    int c;    /* associated number */
     struct Sym *next; /* next related symbol */
     struct Sym *prev; /* prev symbol in stack */
     struct Sym *hash_next; /* next symbol in hash table */
-} Sym; 
+} Sym;
 
-/* relocation entry (currently only used for functions or variables */
-typedef struct Reloc {
-    int type;            /* type of relocation */
-    int addr;            /* address of relocation */
-    struct Reloc *next;  /* next relocation */
-} Reloc;
-
-#define RELOC_ADDR32 1  /* 32 bits relocation */
-#define RELOC_REL32  2  /* 32 bits relative relocation */
+/* section definition */
+typedef struct Section {
+    unsigned char *data;     /* section data */
+    unsigned char *data_ptr; /* current data pointer */
+    int sh_num;              /* elf section number */
+    int sh_type;             /* elf section type */
+    int sh_flags;            /* elf section flags */
+/* special flag to indicate that the section should not be linked to
+   the other ones */
+#define SHF_PRIVATE 0x80000000
+    int sh_entsize;          /* elf entry size */
+    unsigned long addr;      /* address at which the section is relocated */
+    struct Section *link;    /* link to another section */
+    struct Section *reloc;   /* corresponding section for relocation, if any */
+    struct Section *reloc_sec;/* relocation: pointer to corresponding 
+                                 data section */
+    struct Section *hash;     /* hash table for symbols */
+    struct Section *next;
+    char name[64];           /* section name */
+} Section;
 
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
@@ -70,10 +81,29 @@ typedef struct Reloc {
 #define MACRO_OBJ      0 /* object like macro */
 #define MACRO_FUNC     1 /* function like macro */
 
+/* field 'Sym.t' for labels */
+#define LABEL_FORWARD  1 /* label is forward defined */
+
 /* type_decl() types */
 #define TYPE_ABSTRACT  1 /* type without variable */
 #define TYPE_DIRECT    2 /* type with variable */
 
+/* sections */
+/* XXX: suppress first_section */
+Section *first_section, **sections;
+int nb_sections; /* number of sections, including first dummy section */
+int nb_allocated_sections;
+Section *text_section, *data_section, *bss_section; /* predefined sections */
+Section *cur_text_section; /* current section where function code is
+                              generated */
+/* bound check related sections */
+Section *bounds_section; /* contains global data bound description */
+Section *lbounds_section; /* contains local data bound description */
+/* symbol sections */
+Section *symtab_section, *strtab_section, *hashtab_section;
+
+/* debug sections */
+Section *stab_section, *stabstr_section;
 
 /* loc : local variable index
    ind : output code index
@@ -99,7 +129,7 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define VT_JMP       0x00f4  /* value is the consequence of jmp true (even) */
 #define VT_JMPI      0x00f5  /* value is the consequence of jmp false (odd) */
 #define VT_LVAL      0x0100  /* var is an lvalue */
-#define VT_FORWARD   0x0200  /* value is forward reference */
+#define VT_SYM       0x0200  /* a symbol value is added */
 #define VT_MUSTCAST  0x0400  /* value must be casted to be correct (used for
                                 char/short stored in integer registers) */
 #define VT_MUSTBOUND 0x0800  /* bound checking must be done before

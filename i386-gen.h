@@ -44,6 +44,9 @@ enum {
 #define LDOUBLE_SIZE  12
 #define LDOUBLE_ALIGN 4
 
+/* relocation type for 32 bit data relocation */
+#define R_DATA_32 R_386_32
+
 /* function call context */
 typedef struct GFuncContext {
     int args_size;
