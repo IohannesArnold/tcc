@@ -19,13 +19,14 @@ typedef union CValue {
     long long ll;
     unsigned long long ull;
     struct TokenSym *ts;
-    int tab[1];
     struct Sym *sym;
+    int tab[1];
 } CValue;
 
 /* value on stack */
 typedef struct SValue {
     int t;
+    int r;      /* register + flags */
     CValue c;
 } SValue;
 
