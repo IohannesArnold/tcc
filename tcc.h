@@ -104,6 +104,9 @@ SValue vstack[VSTACK_SIZE], *vtop;
                                char/short stored in integer registers) */
 #define VT_MUSTBOUND 0x0800  /* bound checking must be done before
                                 dereferencing value */
+#define VT_LVAL_BYTE     0x1000  /* lvalue is a byte */
+#define VT_LVAL_SHORT    0x2000  /* lvalue is a short */
+#define VT_LVAL_UNSIGNED 0x4000  /* lvalue is unsigned */
 
 /* types */
 #define VT_STRUCT_SHIFT 16   /* structure/enum name shift (16 bits left) */
@@ -112,7 +115,7 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define VT_BYTE       1  /* signed byte type */
 #define VT_SHORT      2  /* short type */
 #define VT_VOID       3  /* void type */
-#define VT_PTR        4  /* pointer increment */
+#define VT_PTR        4  /* pointer */
 #define VT_ENUM       5  /* enum definition */
 #define VT_FUNC       6  /* function type */
 #define VT_STRUCT     7  /* struct/union definition */
@@ -163,9 +166,10 @@ SValue vstack[VSTACK_SIZE], *vtop;
 #define TOK_CCHAR 0xb4 /* char constant in tokc */
 #define TOK_STR   0xb5 /* pointer to string in tokc */
 #define TOK_TWOSHARPS 0xb6 /* ## preprocessing token */
-#define TOK_LCHAR 0xb7
-#define TOK_LSTR  0xb8
+#define TOK_LCHAR    0xb7
+#define TOK_LSTR     0xb8
 #define TOK_CFLOAT   0xb9 /* float constant */
+#define TOK_LINENUM  0xba /* line number info */
 #define TOK_CDOUBLE  0xc0 /* double constant */
 #define TOK_CLDOUBLE 0xc1 /* long double constant */
 #define TOK_UMULL    0xc2 /* unsigned 32x32 -> 64 mul */
@@ -199,6 +203,7 @@ SValue vstack[VSTACK_SIZE], *vtop;
 
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
+
 
 enum {
     TOK_INT = TOK_IDENT,
