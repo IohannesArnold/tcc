@@ -1,3 +1,5 @@
+#include <setjmp.h>
+
 #ifndef CONFIG_TCC_PREFIX
 #define CONFIG_TCC_PREFIX "/usr/local"
 #endif
@@ -188,8 +190,6 @@ int return_linefeed;
 /* set to TRUE if eof was reached */
 int eof_seen;
 /* sections */
-Section **sections;
-int nb_sections; /* number of sections, including first dummy section */
 Section *text_section, *data_section, *bss_section; /* predefined sections */
 Section *cur_text_section; /* current section where function code is
                               generated */
@@ -198,31 +198,9 @@ Section *bounds_section; /* contains global data bound description */
 Section *lbounds_section; /* contains local data bound description */
 /* symbol sections */
 Section *symtab_section, *strtab_section;
-/* temporary dynamic symbol sections (for dll loading) */
-Section *dynsymtab_section;
-/* exported dynamic symbol section */
-Section *dynsym;
-/* got handling */
-Section *got;
-unsigned long *got_offsets;
-int nb_got_offsets;
-int nb_plt_entries;
-/* give the correspondance from symtab indexes to dynsym indexes */
-int *symtab_to_dynsym;
-
-/* array of all loaded dlls (including those referenced by loaded
-   dlls) */
-DLLReference **loaded_dlls;
-int nb_loaded_dlls;
 
 /* debug sections */
 Section *stab_section, *stabstr_section;
-
-char **library_paths;
-int nb_library_paths;
-
-CachedInclude **cached_includes;
-int nb_cached_includes;
 
 /* loc : local variable index
    ind : output code index
@@ -249,23 +227,69 @@ SymStack define_stack, global_stack, local_stack, label_stack;
 
 SValue vstack[VSTACK_SIZE], *vtop;
 int *macro_ptr, *macro_ptr_allocated;
-BufferedFile *include_stack[INCLUDE_STACK_SIZE], **include_stack_ptr;
-int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
-char **include_paths;
-int nb_include_paths;
-char **sysinclude_paths;
-int nb_sysinclude_paths;
 int char_pointer_type;
 int func_old_type;
 
-/* if true, static linking is performed */
-static int static_link = 0;
+/* XXX: suppress that ASAP */
+static struct TCCState *tcc_state;
 
 /* give the path of the tcc libraries */
 static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
 
 typedef struct TCCState {
     int output_type;
+
+    BufferedFile **include_stack_ptr;
+    int *ifdef_stack_ptr;
+
+    /* include file handling */
+    char **include_paths;
+    int nb_include_paths;
+    char **sysinclude_paths;
+    int nb_sysinclude_paths;
+    CachedInclude **cached_includes;
+    int nb_cached_includes;
+
+    char **library_paths;
+    int nb_library_paths;
+
+    /* array of all loaded dlls (including those referenced by loaded
+       dlls) */
+    DLLReference **loaded_dlls;
+    int nb_loaded_dlls;
+
+    /* sections */
+    Section **sections;
+    int nb_sections; /* number of sections, including first dummy section */
+
+    /* got handling */
+    Section *got;
+    unsigned long *got_offsets;
+    int nb_got_offsets;
+    int nb_plt_entries;
+    /* give the correspondance from symtab indexes to dynsym indexes */
+    int *symtab_to_dynsym;
+
+    /* temporary dynamic symbol sections (for dll loading) */
+    Section *dynsymtab_section;
+    /* exported dynamic symbol section */
+    Section *dynsym;
+
+    /* if true, static linking is performed */
+    int static_link;
+
+    /* error handling */
+    void *error_opaque;
+    void (*error_func)(void *opaque, const char *msg);
+    int error_set_jmp_enabled;
+    jmp_buf error_jmp_buf;
+    int nb_errors;
+
+    /* see include_stack_ptr */
+    BufferedFile *include_stack[INCLUDE_STACK_SIZE];
+
+    /* see ifdef_stack_ptr */
+    int ifdef_stack[IFDEF_STACK_SIZE];
 } TCCState;
 
 /* The current value can be: */

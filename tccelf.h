@@ -21,10 +21,11 @@ void tcc_add_runtime(TCCState *s1);
 void put_stabs_r(const char *str, int type, int other, int desc, 
                  unsigned long value, Section *sec, int sym_index);
 void relocate_common_syms(void);
-void relocate_syms(int do_resolve);
+void relocate_syms(TCCState *s1, int do_resolve);
 void relocate_section(TCCState *s1, Section *s);
 void *tcc_get_symbol(TCCState *s, const char *name);
-Section *new_symtab(const char *symtab_name, int sh_type, int sh_flags,
+Section *new_symtab(TCCState *s1,
+                    const char *symtab_name, int sh_type, int sh_flags,
                     const char *strtab_name, 
                     const char *hash_name, int hash_sh_flags);
 int tcc_load_object_file(TCCState *s1, 
