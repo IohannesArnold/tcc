@@ -49,12 +49,6 @@ enum {
 /* relocation type for 32 bit data relocation */
 #define R_DATA_32 R_386_32
 
-/* function call context */
-typedef struct GFuncContext {
-    int args_size;
-    int func_call; /* func call type (FUNC_STDCALL or FUNC_CDECL) */
-} GFuncContext;
-
 /******************************************************/
 
 /* psym is used to put an instruction with a data field which is a
