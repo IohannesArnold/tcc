@@ -44,21 +44,26 @@ typedef struct Sym {
 } Sym;
 
 /* section definition */
-typedef struct Section {
-    unsigned char *data;     /* section data */
-    unsigned char *data_ptr; /* current data pointer */
-    int sh_num;              /* elf section number */
-    int sh_type;             /* elf section type */
-    int sh_flags;            /* elf section flags */
+/* XXX: use directly ELF structure for parameters ? */
 /* special flag to indicate that the section should not be linked to
    the other ones */
 #define SHF_PRIVATE 0x80000000
+
+typedef struct Section {
+    unsigned char *data;     /* section data */
+    unsigned char *data_ptr; /* current data pointer */
+    int sh_name;             /* elf section name (only used during output) */
+    int sh_num;              /* elf section number */
+    int sh_type;             /* elf section type */
+    int sh_flags;            /* elf section flags */
+    int sh_info;             /* elf section info */
+    int sh_addralign;        /* elf section alignment */
     int sh_entsize;          /* elf entry size */
-    unsigned long addr;      /* address at which the section is relocated */
+    unsigned long sh_size;   /* section size (only used during output) */
+    unsigned long sh_addr;      /* address at which the section is relocated */
+    unsigned long sh_offset;      /* address at which the section is relocated */
     struct Section *link;    /* link to another section */
     struct Section *reloc;   /* corresponding section for relocation, if any */
-    struct Section *reloc_sec;/* relocation: pointer to corresponding 
-                                 data section */
     struct Section *hash;     /* hash table for symbols */
     struct Section *next;
     char name[64];           /* section name */
@@ -100,7 +105,7 @@ Section *cur_text_section; /* current section where function code is
 Section *bounds_section; /* contains global data bound description */
 Section *lbounds_section; /* contains local data bound description */
 /* symbol sections */
-Section *symtab_section, *strtab_section, *hashtab_section;
+Section *symtab_section, *strtab_section;
 
 /* debug sections */
 Section *stab_section, *stabstr_section;
