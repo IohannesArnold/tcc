@@ -54,14 +54,16 @@ trycc () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
 
 # Beginning of actual script
 
+version=$(cat VERSION)
 obj_files="libtcc-rt.o tcc.o tccelf.o"
 build_arch=
 host_arch=
 target_arch=
+target_libdir="/usr/lib"
 static='-static -DCONFIG_TCC_STATIC'
 boundry=
 with_asm='-DCONFIG_TCC_ASM'
-cpp_defs=
+cpp_defs="-DTCC_VERSION='\"${version}\"'"
 
 for arg ; do
 case "$arg" in
@@ -129,6 +131,10 @@ if [ -n "$boundry" ]; then
 obj_files="$obj_files bcheck.o"
 cpp_defs="$cpp_defs -DCONFIG_TCC_BCHECK"
 fi 
+
+# Update target directories
+cpp_defs="$cpp_defs -DCONFIG_TCC_LIBDIR='\"${target_libdir}\"'"
+
 
 #
 # Write build.ninja
