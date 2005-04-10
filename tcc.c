@@ -33,27 +33,22 @@
 #include <math.h>
 #include <unistd.h>
 #include <signal.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <setjmp.h>
 #include <time.h>
 #ifdef WIN32
 #include <sys/timeb.h>
-#define CONFIG_TCC_STATIC
 #else
 #include <sys/time.h>
-#endif
+#endif /* WIN32 */
 #ifdef CONFIG_TCC_DEBUG
 #include <sys/ucontext.h>
-#endif
+#endif /* CONFIG_TCC_DEBUG */
 
 
 #include "elf.h"
 #include "stab.h"
-#ifndef CONFIG_TCC_STATIC
-#include <dlfcn.h>
-#endif
-#endif
+#endif /* __TINYC__ */
 
 #include "libtcc.h"
 
@@ -127,8 +122,6 @@ extern float strtof (const char *__nptr, char **__endptr);
 extern long double strtold (const char *__nptr, char **__endptr);
 #endif
 
-
-
 static void macro_subst(TokenString *tok_str, Sym **nested_list, 
                         const int *macro_str, int can_read_stream);
 static void next_nomacro(void);
@@ -194,7 +187,7 @@ static TCCSyms tcc_syms[] = {
     { NULL, NULL },
 };
 
-void *dlsym(void *handle, const char *symbol)
+void *resolve_sym(TCCState *s1, const char *symbol, int type)
 {
     TCCSyms *p;
     p = tcc_syms;
@@ -204,6 +197,15 @@ void *dlsym(void *handle, const char *symbol)
         p++;
     }
     return NULL;
+}
+
+#elif !defined(WIN32)
+
+#include <dlfcn.h>
+
+void *resolve_sym(TCCState *s1, const char *sym, int type)
+{
+    return dlsym(RTLD_DEFAULT, sym);
 }
 
 #endif
@@ -5526,6 +5528,9 @@ static void parse_attribute(AttributeDef *ad)
             skip(')');
             break;
 #endif
+        case TOK_DLLEXPORT:
+            ad->dllexport = 1;
+            break;
         default:
             if (tcc_state->warn_unsupported)
                 warning("'%s' attribute ignored", get_tok_str(t, NULL));
@@ -8693,7 +8698,11 @@ int tcc_relocate(TCCState *s1)
 
     s1->nb_errors = 0;
     
+#ifdef TCC_TARGET_PE
+    pe_add_runtime(s1);
+#else
     tcc_add_runtime(s1);
+#endif
 
     relocate_common_syms();
 
@@ -8841,9 +8850,17 @@ TCCState *tcc_new(void)
     tcc_define_symbol(s, "__WCHAR_TYPE__", "int");
     
     /* default library paths */
+#ifdef TCC_TARGET_PE
+    {
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "%s/lib", tcc_lib_path);
+        tcc_add_library_path(s, buf);
+    }
+#else
     tcc_add_library_path(s, "/usr/local/lib");
     tcc_add_library_path(s, "/usr/lib");
     tcc_add_library_path(s, "/lib");
+#endif
 
     /* no section zero */
     dynarray_add((void ***)&s->sections, &s->nb_sections, NULL);
@@ -8981,6 +8998,11 @@ static int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
         ret = tcc_assemble(s1, 0);
     } else 
 #endif
+#ifdef TCC_TARGET_PE
+    if (!strcmp(ext, "def")) {
+        ret = pe_load_def_file(s1, fdopen(file->fd, "rb"));
+    } else
+#endif
     {
         fd = file->fd;
         /* assume executable format: auto guess file type */
@@ -9002,12 +9024,16 @@ static int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
                 ret = tcc_load_object_file(s1, fd, 0);
             } else if (ehdr.e_type == ET_DYN) {
                 if (s1->output_type == TCC_OUTPUT_MEMORY) {
+#ifdef TCC_TARGET_PE
+                    ret = -1;
+#else
                     void *h;
                     h = dlopen(filename, RTLD_GLOBAL | RTLD_LAZY);
                     if (h)
                         ret = 0;
                     else
                         ret = -1;
+#endif
                 } else {
                     ret = tcc_load_dll(s1, fd, filename, 
                                        (flags & AFF_REFERENCED_DLL) != 0);
@@ -9083,7 +9109,11 @@ int tcc_add_library(TCCState *s, const char *libraryname)
     
     /* first we look for the dynamic library if not static linking */
     if (!s->static_link) {
+#ifdef TCC_TARGET_PE
+        snprintf(buf, sizeof(buf), "%s.def", libraryname);
+#else
         snprintf(buf, sizeof(buf), "lib%s.so", libraryname);
+#endif
         if (tcc_add_dll(s, buf, 0) == 0)
             return 0;
     }
@@ -9108,17 +9138,23 @@ int tcc_add_symbol(TCCState *s, const char *name, unsigned long val)
 
 int tcc_set_output_type(TCCState *s, int output_type)
 {
-    char buf[1024];
-
     s->output_type = output_type;
 
     if (!s->nostdinc) {
+        char buf[1024];
+
         /* default include paths */
         /* XXX: reverse order needed if -isystem support */
+#ifndef TCC_TARGET_PE
         tcc_add_sysinclude_path(s, "/usr/local/include");
         tcc_add_sysinclude_path(s, "/usr/include");
+#endif
         snprintf(buf, sizeof(buf), "%s/include", tcc_lib_path);
         tcc_add_sysinclude_path(s, buf);
+#ifdef TCC_TARGET_PE
+        snprintf(buf, sizeof(buf), "%s/include/winapi", tcc_lib_path);
+        tcc_add_sysinclude_path(s, buf);
+#endif
     }
 
     /* if bound checking, then add corresponding sections */
@@ -9153,12 +9189,14 @@ int tcc_set_output_type(TCCState *s, int output_type)
 #endif
 
     /* add libc crt1/crti objects */
+#ifndef TCC_TARGET_PE
     if ((output_type == TCC_OUTPUT_EXE || output_type == TCC_OUTPUT_DLL) &&
         !s->nostdlib) {
         if (output_type != TCC_OUTPUT_DLL)
             tcc_add_file(s, CONFIG_TCC_CRT_PREFIX "/crt1.o");
         tcc_add_file(s, CONFIG_TCC_CRT_PREFIX "/crti.o");
     }
+#endif
     return 0;
 }
 
@@ -9268,7 +9306,7 @@ static int64_t getclock_us(void)
 
 void help(void)
 {
-    printf("tcc version " TCC_VERSION " - Tiny C Compiler - Copyright (C) 2001-2004 Fabrice Bellard\n"
+    printf("tcc version " TCC_VERSION " - Tiny C Compiler - Copyright (C) 2001-2005 Fabrice Bellard\n"
            "usage: tcc [-v] [-c] [-o outfile] [-Bdir] [-bench] [-Idir] [-Dsym[=val]] [-Usym]\n"
            "           [-Wwarn] [-g] [-b] [-bt N] [-Ldir] [-llib] [-shared] [-static]\n"
            "           [infile1 infile2...] [-run infile args...]\n"
@@ -9628,6 +9666,22 @@ int main(int argc, char **argv)
     char objfilename[1024];
     int64_t start_time = 0;
 
+#ifdef WIN32
+    /* on win32, we suppose the lib and includes are at the location
+       of 'tcc.exe' */
+    {
+        static char path[1024];
+
+        GetModuleFileNameA(NULL, path, sizeof path);
+        p = d = strlwr(path);
+        while (*d)
+            if (*d++ == '\\')
+                (p = d)[-1] = '/';
+        *p = '\0';
+        tcc_lib_path = path;
+    }
+#endif
+
     s = tcc_new();
     output_type = TCC_OUTPUT_EXE;
     outfile = NULL;
@@ -9719,11 +9773,17 @@ int main(int argc, char **argv)
                total_bytes / total_time / 1000000.0); 
     }
 
-    if (s->output_type != TCC_OUTPUT_MEMORY) {
+    if (s->output_type == TCC_OUTPUT_MEMORY) {
+        ret = tcc_run(s, argc - optind, argv + optind);
+    } else
+#ifdef TCC_TARGET_PE
+    if (s->output_type != TCC_OUTPUT_OBJ) {
+        ret = tcc_output_pe(s, outfile);
+    } else
+#endif
+    {
         tcc_output_file(s, outfile);
         ret = 0;
-    } else {
-        ret = tcc_run(s, argc - optind, argv + optind);
     }
  the_end:
     /* XXX: cannot do it with bound checking because of the malloc hooks */

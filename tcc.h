@@ -116,9 +116,10 @@ typedef struct DLLReference {
 /* GNUC attribute definition */
 typedef struct AttributeDef {
     int aligned;
-    int packed; 
+    int packed;
     Section *section;
     unsigned char func_call; /* FUNC_CDECL, FUNC_STDCALL, FUNC_FASTCALLx */
+    unsigned char dllexport;
 } AttributeDef;
 
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
