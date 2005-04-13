@@ -13,6 +13,7 @@
 #define IFDEF_STACK_SIZE    64
 #define VSTACK_SIZE         256
 #define STRING_MAX_SIZE     1024
+#define PACK_STACK_SIZE     8
 
 #define TOK_HASH_SIZE       8192 /* must be a power of two */
 #define TOK_ALLOC_INCR      512  /* must be a power of two */
@@ -367,6 +368,10 @@ typedef struct TCCState {
 
     /* see cached_includes */
     int cached_includes_hash[CACHED_INCLUDES_HASH_SIZE];
+
+    /* pack stack */
+    int pack_stack[PACK_STACK_SIZE];
+    int *pack_stack_ptr;
 } TCCState;
 
 /* The current value can be: */

@@ -11,7 +11,7 @@ typedef struct {
 } Stab_Sym;
 
 int add_elf_sym(Section *s, unsigned long value, unsigned long size,
-                       int info, int sh_num, const char *name);
+                       int info, int other, int sh_num, const char *name);
 int put_elf_sym(Section *s, 
                        unsigned long value, unsigned long size,
                        int info, int other, int shndx, const char *name);
