@@ -102,6 +102,12 @@ static const char tcc_keywords[] =
 #define TOK_UIDENT TOK_DEFINE
 
 #ifdef WIN32
+int __stdcall GetModuleFileNameA(void *, char *, int);
+void *__stdcall GetProcAddress(void *, const char *);
+void *__stdcall GetModuleHandleA(const char *);
+void *__stdcall LoadLibraryA(const char *);
+int __stdcall FreeConsole(void);
+
 #define snprintf _snprintf
 #define vsnprintf _vsnprintf
 #endif
@@ -9736,7 +9742,8 @@ int main(int argc, char **argv)
        of 'tcc.exe' */
     {
         static char path[1024];
-
+        char *p, *d;
+        
         GetModuleFileNameA(NULL, path, sizeof path);
         p = d = strlwr(path);
         while (*d)
