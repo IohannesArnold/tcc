@@ -342,6 +342,8 @@ typedef struct TCCState {
     /* C language options */
     int char_is_unsigned;
 
+    int leading_underscore;
+
     /* warning switches */
     int warn_write_strings;
     int warn_unsupported;
