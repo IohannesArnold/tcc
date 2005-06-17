@@ -605,6 +605,11 @@ typedef struct ASMOperand {
 
 #endif
 
+struct macro_level {
+    struct macro_level *prev;
+    int *p;
+};
+
 char *pstrcpy(char *buf, int buf_size, const char *s);
 char *pstrcat(char *buf, int buf_size, const char *s);
 
