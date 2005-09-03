@@ -99,8 +99,8 @@ typedef struct Section {
     int sh_addralign;        /* elf section alignment */
     int sh_entsize;          /* elf entry size */
     unsigned long sh_size;   /* section size (only used during output) */
-    unsigned long sh_addr;      /* address at which the section is relocated */
-    unsigned long sh_offset;      /* address at which the section is relocated */
+    unsigned long sh_addr;   /* address at which the section is relocated */
+    unsigned long sh_offset; /* file offset */
     int nb_hashed_syms;      /* used to resize the hash table */
     struct Section *link;    /* link to another section */
     struct Section *reloc;   /* corresponding section for relocation, if any */

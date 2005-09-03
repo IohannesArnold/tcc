@@ -38,17 +38,23 @@
 #include <time.h>
 #ifdef WIN32
 #include <sys/timeb.h>
+#include <windows.h>
 #else
 #include <sys/time.h>
 #endif /* WIN32 */
+#include <sys/mman.h>
 #ifdef CONFIG_TCC_DEBUG
 #include <sys/ucontext.h>
 #endif /* CONFIG_TCC_DEBUG */
 
-
 #include "elf.h"
 #include "stab.h"
 #endif /* __TINYC__ */
+
+#ifndef PAGESIZE
+#define PAGESIZE 4096
+#endif
+
 
 #include "libtcc.h"
 
@@ -8834,6 +8840,30 @@ int tcc_relocate(TCCState *s1)
         s = s1->sections[i];
         if (s->reloc)
             relocate_section(s1, s);
+    }
+
+    /* mark executable sections as executable in memory */
+    for(i = 1; i < s1->nb_sections; i++) {
+        s = s1->sections[i];
+        if ((s->sh_flags & (SHF_ALLOC | SHF_EXECINSTR)) == 
+            (SHF_ALLOC | SHF_EXECINSTR)) {
+#ifdef WIN32
+            {
+                DWORD old_protect;
+                VirtualProtect(s->data, s->data_offset,
+                               PAGE_EXECUTE_READWRITE, &old_protect);
+            }
+#else
+            {
+                unsigned long start, end;
+                start = (unsigned long)(s->data) & ~(PAGESIZE - 1);
+                end = (unsigned long)(s->data + s->data_offset);
+                end = (end + PAGESIZE - 1) & ~(PAGESIZE - 1);
+                mprotect((void *)start, end - start, 
+                         PROT_READ | PROT_WRITE | PROT_EXEC);
+            }
+#endif            
+        }
     }
     return 0;
 }
