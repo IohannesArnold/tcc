@@ -31,9 +31,15 @@ typedef struct TokenSym {
     char str[1];
 } TokenSym;
 
+#ifdef TCC_TARGET_PE
+typedef unsigned short nwchar_t;
+#else
+typedef int nwchar_t;
+#endif
+
 typedef struct CString {
     int size; /* size in bytes */
-    void *data; /* either 'char *' or 'int *' */
+    void *data; /* either 'char *' or 'nwchar_t *' */
     int size_allocated;
     void *data_allocated; /* if non NULL, data has been malloced */
 } CString;

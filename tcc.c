@@ -777,10 +777,10 @@ void cstr_cat(CString *cstr, const char *str)
 static void cstr_wccat(CString *cstr, int ch)
 {
     int size;
-    size = cstr->size + sizeof(int);
+    size = cstr->size + sizeof(nwchar_t);
     if (size > cstr->size_allocated)
         cstr_realloc(cstr, size);
-    *(int *)(((unsigned char *)cstr->data) + size - sizeof(int)) = ch;
+    *(nwchar_t *)(((unsigned char *)cstr->data) + size - sizeof(nwchar_t)) = ch;
     cstr->size = size;
 }
 
@@ -870,9 +870,9 @@ char *get_tok_str(int v, CValue *cv)
             for(i=0;i<len;i++)
                 add_char(&cstr_buf, ((unsigned char *)cstr->data)[i]);
         } else {
-            len = (cstr->size / sizeof(int)) - 1;
+            len = (cstr->size / sizeof(nwchar_t)) - 1;
             for(i=0;i<len;i++)
-                add_char(&cstr_buf, ((int *)cstr->data)[i]);
+                add_char(&cstr_buf, ((nwchar_t *)cstr->data)[i]);
         }
         cstr_ccat(&cstr_buf, '\"');
         cstr_ccat(&cstr_buf, '\0');
@@ -2939,7 +2939,7 @@ static inline void next_nomacro1(void)
                 if (!is_long)
                     char_size = 1;
                 else
-                    char_size = sizeof(int);
+                    char_size = sizeof(nwchar_t);
                 if (tokcstr.size <= char_size)
                     error("empty character constant");
                 if (tokcstr.size > 2 * char_size)
@@ -2948,7 +2948,7 @@ static inline void next_nomacro1(void)
                     tokc.i = *(int8_t *)tokcstr.data;
                     tok = TOK_CCHAR;
                 } else {
-                    tokc.i = *(int *)tokcstr.data;
+                    tokc.i = *(nwchar_t *)tokcstr.data;
                     tok = TOK_LCHAR;
                 }
             } else {
@@ -6346,7 +6346,11 @@ static void unary(void)
         }
         break;
     case TOK_LSTR:
+#ifdef TCC_TARGET_PE
+        t = VT_SHORT | VT_UNSIGNED;
+#else
         t = VT_INT;
+#endif
         goto str_init;
     case TOK_STR:
         /* string parsing */
@@ -7631,7 +7635,11 @@ static void decl_initializer(CType *type, Section *sec, unsigned long c,
         /* only parse strings here if correct type (otherwise: handle
            them as ((w)char *) expressions */
         if ((tok == TOK_LSTR && 
+#ifdef TCC_TARGET_PE
+             (t1->t & VT_BTYPE) == VT_SHORT && (t1->t & VT_UNSIGNED)) ||
+#else
              (t1->t & VT_BTYPE) == VT_INT) ||
+#endif
             (tok == TOK_STR &&
              (t1->t & VT_BTYPE) == VT_BYTE)) {
             while (tok == TOK_STR || tok == TOK_LSTR) {
@@ -7643,7 +7651,7 @@ static void decl_initializer(CType *type, Section *sec, unsigned long c,
                 if (tok == TOK_STR)
                     cstr_len = cstr->size;
                 else
-                    cstr_len = cstr->size / sizeof(int);
+                    cstr_len = cstr->size / sizeof(nwchar_t);
                 cstr_len--;
                 nb = cstr_len;
                 if (n >= 0 && nb > (n - array_length))
@@ -7661,7 +7669,7 @@ static void decl_initializer(CType *type, Section *sec, unsigned long c,
                             if (tok == TOK_STR)
                                 ch = ((unsigned char *)cstr->data)[i];
                             else
-                                ch = ((int *)cstr->data)[i];
+                                ch = ((nwchar_t *)cstr->data)[i];
                             init_putv(t1, sec, c + (array_length + i) * size1,
                                       ch, EXPR_VAL);
                         }
@@ -8980,7 +8988,11 @@ TCCState *tcc_new(void)
     /* tiny C & gcc defines */
     tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned int");
     tcc_define_symbol(s, "__PTRDIFF_TYPE__", "int");
+#ifdef TCC_TARGET_PE
+    tcc_define_symbol(s, "__WCHAR_TYPE__", "unsigned short");
+#else
     tcc_define_symbol(s, "__WCHAR_TYPE__", "int");
+#endif
     
     /* default library paths */
 #ifdef TCC_TARGET_PE
