@@ -5631,6 +5631,11 @@ static void parse_attribute(AttributeDef *ad)
                 ad->func_call = FUNC_FASTCALL1 + n - 1;
             skip(')');
             break;
+        case TOK_FASTCALL1:
+        case TOK_FASTCALL2:
+        case TOK_FASTCALL3:
+            ad->func_call = FUNC_FASTCALLW;
+            break;            
 #endif
         case TOK_DLLEXPORT:
             ad->dllexport = 1;
