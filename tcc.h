@@ -1,4 +1,5 @@
 #include <setjmp.h>
+#include <stdio.h>
 
 #ifndef O_BINARY
 #define O_BINARY 0
@@ -381,6 +382,9 @@ typedef struct TCCState {
     /* pack stack */
     int pack_stack[PACK_STACK_SIZE];
     int *pack_stack_ptr;
+
+    /* output file for preprocessing */
+    FILE *outfile;
 } TCCState;
 
 /* The current value can be: */
@@ -671,6 +675,7 @@ void asm_instr(void);
 
 #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
 #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
+#define AFF_PREPROCESS      0x0004 /* preprocess file */
 
 void *tcc_malloc(unsigned long size);
 void *tcc_mallocz(unsigned long size);
