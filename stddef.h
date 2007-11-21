@@ -12,9 +12,9 @@ typedef __PTRDIFF_TYPE__ ptrdiff_t;
    __GNUC__ ? */
 #if !defined(__int8_t_defined) && !defined(__dietlibc__)
 #define __int8_t_defined
-typedef	char int8_t;
-typedef	short int int16_t;
-typedef	int int32_t;
+typedef char int8_t;
+typedef short int int16_t;
+typedef int int32_t;
 typedef long long int int64_t;
 #endif
 
@@ -22,5 +22,10 @@ typedef unsigned char		uint8_t;
 typedef unsigned short int	uint16_t;
 typedef unsigned int		uint32_t;
 typedef unsigned long long int	uint64_t;
+
+#ifdef __i386__
+void *_alloca(size_t);
+#define alloca _alloca
+#endif
 
 #endif
