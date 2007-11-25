@@ -218,6 +218,7 @@ static int tok_flags;
 #define TOK_FLAG_BOL   0x0001 /* beginning of line before */
 #define TOK_FLAG_BOF   0x0002 /* beginning of file before */
 #define TOK_FLAG_ENDIF 0x0004 /* a endif was found matching starting #ifdef */
+#define TOK_FLAG_EOF   0x0008 /* end of file */
 
 static int *macro_ptr, *macro_ptr_allocated;
 static int *unget_saved_macro_ptr;
