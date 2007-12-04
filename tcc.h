@@ -455,6 +455,8 @@ typedef struct TCCState {
 #define TOK_NE  0x95
 #define TOK_ULE 0x96
 #define TOK_UGT 0x97
+#define TOK_Nset 0x98
+#define TOK_Nclear 0x99
 #define TOK_LT  0x9c
 #define TOK_GE  0x9d
 #define TOK_LE  0x9e
