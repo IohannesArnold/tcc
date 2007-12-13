@@ -37,7 +37,7 @@
 #include <fcntl.h>
 #include <setjmp.h>
 #include <time.h>
-#ifdef WIN32
+#ifdef _WIN32
 #include <sys/timeb.h>
 //#include <windows.h>
 #else
@@ -101,7 +101,7 @@ static const char tcc_keywords[] =
 
 #define TOK_UIDENT TOK_DEFINE
 
-#ifdef WIN32
+#ifdef _WIN32
 int __stdcall GetModuleFileNameA(void *, char *, int);
 void *__stdcall GetProcAddress(void *, const char *);
 void *__stdcall GetModuleHandleA(const char *);
@@ -212,7 +212,7 @@ void *resolve_sym(TCCState *s1, const char *symbol, int type)
     return NULL;
 }
 
-#elif !defined(WIN32)
+#elif !defined(_WIN32)
 
 #include <dlfcn.h>
 
@@ -280,7 +280,7 @@ static int strstart(const char *str, const char *val, const char **ptr)
     return 1;
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 char *normalize_slashes(char *path)
 {
     char *p;
@@ -298,9 +298,9 @@ char *w32_tcc_lib_path(void)
     GetModuleFileNameA(NULL, path, sizeof path);
     p = tcc_basename(normalize_slashes(strlwr(path)));
     if (p - 5 > path && 0 == strncmp(p - 5, "/bin/", 5))
-	p -= 5;
+        p -= 5;
     else if (p > path)
-	p--;
+        p--;
     *p = 0;
     return strdup(path);
 }
@@ -311,6 +311,19 @@ char *normalize_slashes(char *path)
 }
 #endif
 
+void set_pages_executable(void *ptr, unsigned long length)
+{
+#ifdef _WIN32
+    unsigned long old_protect;
+    VirtualProtect(ptr, length, PAGE_EXECUTE_READWRITE, &old_protect);
+#else
+    unsigned long start, end;
+    start = (unsigned long)ptr & ~(PAGESIZE - 1);
+    end = (unsigned long)ptr + length;
+    end = (end + PAGESIZE - 1) & ~(PAGESIZE - 1);
+    mprotect((void *)start, end - start, PROT_READ | PROT_WRITE | PROT_EXEC);
+#endif            
+}
 
 void *tcc_malloc(unsigned long size)
 {
@@ -1088,7 +1101,9 @@ BufferedFile *tcc_open(TCCState *s1, const char *filename)
     bf->buf_end = bf->buffer;
     bf->buffer[0] = CH_EOB; /* put eob symbol */
     pstrcpy(bf->filename, sizeof(bf->filename), filename);
+#ifdef _WIN32
     normalize_slashes(bf->filename);
+#endif
     bf->line_num = 1;
     bf->ifndef_macro = 0;
     bf->ifdef_stack_ptr = s1->ifdef_stack_ptr;
@@ -2759,16 +2774,16 @@ static inline void next_nomacro1(void)
         {
             TCCState *s1 = tcc_state;
             if ((parse_flags & PARSE_FLAG_LINEFEED)
-	     	&& !(tok_flags & TOK_FLAG_EOF)) {
-		tok_flags |= TOK_FLAG_EOF;
+                && !(tok_flags & TOK_FLAG_EOF)) {
+                tok_flags |= TOK_FLAG_EOF;
                 tok = TOK_LINEFEED;
-		goto keep_tok_flags;
+                goto keep_tok_flags;
             } else if (s1->include_stack_ptr == s1->include_stack ||
                        !(parse_flags & PARSE_FLAG_PREPROCESS)) {
                 /* no include left : end of file. */
                 tok = TOK_EOF;
             } else {
-		tok_flags &= ~TOK_FLAG_EOF;
+                tok_flags &= ~TOK_FLAG_EOF;
                 /* pop include file */
                 
                 /* test if previous '#endif' was after a #ifdef at
@@ -2798,13 +2813,13 @@ static inline void next_nomacro1(void)
         break;
 
     case '\n':
-	file->line_num++;
-	tok_flags |= TOK_FLAG_BOL;
-	p++;
+        file->line_num++;
+        tok_flags |= TOK_FLAG_BOL;
+        p++;
         if (0 == (parse_flags & PARSE_FLAG_LINEFEED))
             goto redo_no_start;
         tok = TOK_LINEFEED;
-	goto keep_tok_flags;
+        goto keep_tok_flags;
 
     case '#':
         /* XXX: simplify */
@@ -3363,8 +3378,8 @@ static int macro_subst_tok(TokenString *tok_str,
                         parlevel++;
                     else if (tok == ')')
                         parlevel--;
-		    if (tok != TOK_LINEFEED)
-                    	tok_str_add2(&str, tok, &tokc);
+                    if (tok != TOK_LINEFEED)
+                        tok_str_add2(&str, tok, &tokc);
                     next_nomacro();
                 }
                 tok_str_add(&str, 0);
@@ -8602,6 +8617,9 @@ static int tcc_compile(TCCState *s1)
                                   ELF32_ST_INFO(STB_LOCAL, STT_SECTION), 0, 
                                   text_section->sh_num, NULL);
         getcwd(buf, sizeof(buf));
+#ifdef _WIN32
+        normalize_slashes(buf);
+#endif
         pstrcat(buf, sizeof(buf), "/");
         put_stabs_r(buf, N_SO, 0, 0, 
                     text_section->data_offset, text_section, section_sym);
@@ -8706,9 +8724,9 @@ static int tcc_preprocess(TCCState *s1)
             break;
         } else if (tok == TOK_LINEFEED) {
             last_is_space = 1;
-	} else {
-	    if (!last_is_space)
-            	fputc(' ', s1->outfile);
+        } else {
+            if (!last_is_space)
+                fputc(' ', s1->outfile);
             last_is_space = 0;
         }
         fputs(get_tok_str(tok, &tokc), s1->outfile);
@@ -8924,7 +8942,7 @@ static void rt_printline(unsigned long wanted_pc)
     fprintf(stderr, "\n");
 }
 
-#if !defined(WIN32) && !defined(CONFIG_TCCBOOT)
+#if !defined(_WIN32) && !defined(CONFIG_TCCBOOT)
 
 #ifdef __i386__
 
@@ -9094,24 +9112,8 @@ int tcc_relocate(TCCState *s1)
     for(i = 1; i < s1->nb_sections; i++) {
         s = s1->sections[i];
         if ((s->sh_flags & (SHF_ALLOC | SHF_EXECINSTR)) == 
-            (SHF_ALLOC | SHF_EXECINSTR)) {
-#ifdef WIN32
-            {
-                unsigned long old_protect;
-                VirtualProtect(s->data, s->data_offset,
-                               PAGE_EXECUTE_READWRITE, &old_protect);
-            }
-#else
-            {
-                unsigned long start, end;
-                start = (unsigned long)(s->data) & ~(PAGESIZE - 1);
-                end = (unsigned long)(s->data + s->data_offset);
-                end = (end + PAGESIZE - 1) & ~(PAGESIZE - 1);
-                mprotect((void *)start, end - start, 
-                         PROT_READ | PROT_WRITE | PROT_EXEC);
-            }
-#endif            
-        }
+            (SHF_ALLOC | SHF_EXECINSTR))
+            set_pages_executable(s->data, s->data_offset);
     }
     return 0;
 }
@@ -9128,7 +9130,7 @@ int tcc_run(TCCState *s1, int argc, char **argv)
     
 #ifdef CONFIG_TCC_DEBUG
     if (do_debug) {
-#if defined(WIN32) || defined(CONFIG_TCCBOOT)
+#if defined(_WIN32) || defined(CONFIG_TCCBOOT)
         error("debug mode currently not available for Windows");
 #else        
         struct sigaction sigact;
@@ -9230,6 +9232,7 @@ TCCState *tcc_new(void)
     tcc_define_symbol(s, "__PTRDIFF_TYPE__", "int");
 #ifdef TCC_TARGET_PE
     tcc_define_symbol(s, "__WCHAR_TYPE__", "unsigned short");
+    tcc_define_symbol(s, "_WIN32", NULL);
 #else
     tcc_define_symbol(s, "__WCHAR_TYPE__", "int");
 #endif
@@ -9671,7 +9674,7 @@ static char *tcc_basename(const char *name)
     char *p = strchr(name, 0);
     while (p > name
         && p[-1] != '/'
-#ifdef WIN32
+#ifdef _WIN32
         && p[-1] != '\\'
 #endif
         )
@@ -9683,7 +9686,7 @@ static char *tcc_basename(const char *name)
 
 static int64_t getclock_us(void)
 {
-#ifdef WIN32
+#ifdef _WIN32
     struct _timeb tb;
     _ftime(&tb);
     return (tb.time * 1000LL + tb.millitm) * 1000LL;
@@ -10062,7 +10065,7 @@ int main(int argc, char **argv)
     char objfilename[1024];
     int64_t start_time = 0;
 
-#ifdef WIN32
+#ifdef _WIN32
     tcc_lib_path = w32_tcc_lib_path();
 #endif
 
@@ -10111,7 +10114,7 @@ int main(int argc, char **argv)
         }
     } else if (output_type != TCC_OUTPUT_MEMORY) {
         if (!outfile) {
-    	    /* compute default outfile name */
+            /* compute default outfile name */
             pstrcpy(objfilename, sizeof(objfilename) - 1, 
                     /* strip path */
                     tcc_basename(files[0]));
@@ -10120,10 +10123,10 @@ int main(int argc, char **argv)
 #else
             if (output_type == TCC_OUTPUT_OBJ && !reloc_output) {
                 char *ext = strrchr(objfilename, '.');
-            	if (!ext)
+                if (!ext)
                     goto default_outfile;
                 /* add .o extension */
-            	strcpy(ext + 1, "o");
+                strcpy(ext + 1, "o");
             } else {
         default_outfile:
                 pstrcpy(objfilename, sizeof(objfilename), "a.out");
