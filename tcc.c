@@ -1158,7 +1158,7 @@ int handle_eob(void)
 }
 
 /* handle '\[\r]\n' */
-static void handle_stray(void)
+static int handle_stray_noerror(void)
 {
     while (ch == '\\') {
         inp();
@@ -1173,9 +1173,16 @@ static void handle_stray(void)
             inp();
         } else {
         fail:
-            error("stray '\\' in program");
+            return 1;
         }
     }
+    return 0;
+}
+
+static void handle_stray(void)
+{
+    if (handle_stray_noerror())
+        error("stray '\\' in program");
 }
 
 /* skip the stray and handle the \\n case. Output an error if
@@ -1455,9 +1462,8 @@ void preprocess_skip(void)
             if (c == CH_EOF) {
                 expect("#endif");
             } else if (c == '\\') {
-                /* XXX: incorrect: should not give an error */
                 ch = file->buf_ptr[0];
-                handle_stray();
+                handle_stray_noerror();
             }
             p = file->buf_ptr;
             goto redo_no_start;
@@ -2087,13 +2093,16 @@ static void preprocess(int is_bof)
         } else if (ch == '\"') {
             c = ch;
         read_name:
-            /* XXX: better stray handling */
-            minp();
+            inp();
             q = buf;
             while (ch != c && ch != '\n' && ch != CH_EOF) {
                 if ((q - buf) < sizeof(buf) - 1)
                     *q++ = ch;
-                minp();
+                if (ch == '\\') {
+                    if (handle_stray_noerror() == 0)
+                        --q;
+                } else
+                    inp();
             }
             *q = '\0';
             minp();
@@ -2296,7 +2305,11 @@ static void preprocess(int is_bof)
         while (ch != '\n' && ch != CH_EOF) {
             if ((q - buf) < sizeof(buf) - 1)
                 *q++ = ch;
-            minp();
+            if (ch == '\\') {
+                if (handle_stray_noerror() == 0)
+                    --q;
+            } else
+                inp();
         }
         *q = '\0';
         if (c == TOK_ERROR)
