@@ -126,9 +126,23 @@ typedef struct AttributeDef {
     int aligned;
     int packed;
     Section *section;
-    unsigned char func_call; /* FUNC_CDECL, FUNC_STDCALL, FUNC_FASTCALLx */
-    unsigned char dllexport;
+    int func_attr; /* calling convention, exports, ... */
 } AttributeDef;
+
+/* -------------------------------------------------- */
+/* gr: wrappers for casting sym->r for other purposes */
+typedef struct {
+    unsigned
+      func_call : 8,
+      func_args : 8,
+      func_export : 1;
+} func_attr_t;
+
+#define FUNC_CALL(r) (((func_attr_t*)&(r))->func_call)
+#define FUNC_EXPORT(r) (((func_attr_t*)&(r))->func_export)
+#define FUNC_ARGS(r) (((func_attr_t*)&(r))->func_args)
+#define INLINE_DEF(r) (*(int **)&(r))
+/* -------------------------------------------------- */
 
 #define SYM_STRUCT     0x40000000 /* struct/union/enum symbol space */
 #define SYM_FIELD      0x20000000 /* struct/union field symbol space */
@@ -281,6 +295,9 @@ static SValue vstack[VSTACK_SIZE], *vtop;
 static CType char_pointer_type, func_old_type, int_type;
 /* true if isid(c) || isnum(c) */
 static unsigned char isidnum_table[256];
+
+/* display some information during compilation */
+static int verbose = 0;
 
 /* XXX: get rid of this ASAP */
 static struct TCCState *tcc_state;
