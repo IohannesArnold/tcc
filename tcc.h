@@ -352,6 +352,9 @@ typedef struct TCCState {
     /* if true, static linking is performed */
     int static_link;
 
+    /* soname as specified on the command line (-soname) */
+    const char *soname;
+
     /* if true, all symbols are exported */
     int rdynamic;
 
