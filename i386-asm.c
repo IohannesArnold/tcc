@@ -113,10 +113,13 @@ typedef struct Operand {
     ExprValue e;
 } Operand;
 
-static const char reg_to_size[5] = {
+static const uint8_t reg_to_size[5] = {
+/*
     [OP_REG8] = 0,
     [OP_REG16] = 1,
     [OP_REG32] = 2,
+*/
+    0, 0, 1, 0, 2
 };
     
 #define WORD_PREFIX_OPCODE 0x66
