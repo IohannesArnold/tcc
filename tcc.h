@@ -289,6 +289,8 @@ static Sym *global_label_stack, *local_label_stack;
 /* symbol allocator */
 #define SYM_POOL_NB (8192 / sizeof(Sym))
 static Sym *sym_free_first;
+static void **sym_pools;
+static int nb_sym_pools;
 
 static SValue vstack[VSTACK_SIZE], *vtop;
 /* some predefined types */
@@ -743,6 +745,7 @@ static inline void inp(void)
 #ifdef MEM_DEBUG
 int mem_cur_size;
 int mem_max_size;
+unsigned malloc_usable_size(void*);
 #endif
 
 static inline void tcc_free(void *ptr)
