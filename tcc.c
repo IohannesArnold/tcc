@@ -170,11 +170,6 @@ void *dlopen(const char *filename, int flag)
     return NULL;
 }
 
-const char *dlerror(void)
-{
-    return "error";
-}
-
 typedef struct TCCSyms {
     char *str;
     void *ptr;
@@ -8672,8 +8667,6 @@ void preprocess_init(TCCState *s1)
     vtop = vstack - 1;
     s1->pack_stack[0] = 0;
     s1->pack_stack_ptr = s1->pack_stack;
-
-    macro_ptr = NULL;
 }
 
 /* compile the C file opened in 'file'. Return non zero if errors. */
@@ -9276,6 +9269,8 @@ static void tcc_cleanup(void)
     cstr_free(&tokcstr);
     /* reset symbol stack */
     sym_free_first = NULL;
+    /* cleanup from error/setjmp */
+    macro_ptr = NULL;
 }
 
 TCCState *tcc_new(void)
@@ -9408,6 +9403,14 @@ void tcc_delete(TCCState *s1)
     for(i = 1; i < s1->nb_sections; i++)
         free_section(s1->sections[i]);
     tcc_free(s1->sections);
+	
+    /* free any loaded DLLs */
+    for ( i = 0; i < s1->nb_loaded_dlls; i++)
+    {
+        DLLReference *ref = s1->loaded_dlls[i];
+        if ( ref->handle )
+            dlclose(ref->handle);
+    }
     
     /* free loaded dlls array */
     dynarray_reset(&s1->loaded_dlls, &s1->nb_loaded_dlls);

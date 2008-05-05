@@ -118,6 +118,7 @@ typedef struct Section {
 
 typedef struct DLLReference {
     int level;
+    void *handle;
     char name[1];
 } DLLReference;
 
