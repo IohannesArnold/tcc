@@ -297,7 +297,7 @@ static SValue vstack[VSTACK_SIZE], *vtop;
 /* some predefined types */
 static CType char_pointer_type, func_old_type, int_type;
 /* true if isid(c) || isnum(c) */
-static unsigned char isidnum_table[256];
+static unsigned char isidnum_table[256-CH_EOF];
 
 /* display some information during compilation */
 static int verbose = 0;
