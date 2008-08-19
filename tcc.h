@@ -684,6 +684,7 @@ int type_size(CType *type, int *a);
 
 void error(const char *fmt, ...);
 void vpushi(int v);
+int lvalue_type(int t);
 void vset(CType *type, int r, int v);
 void type_to_str(char *buf, int buf_size, 
                  CType *type, const char *varstr);

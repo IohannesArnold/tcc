@@ -148,7 +148,6 @@ static Sym *sym_find(int v);
 /* type handling */
 static inline CType *pointed_type(CType *type);
 static int pointed_size(CType *type);
-static int lvalue_type(int t);
 static int parse_btype(CType *type, AttributeDef *ad);
 static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
 static int compare_types(CType *type1, CType *type2, int unqualified);
@@ -6430,7 +6429,7 @@ static void type_decl(CType *type, AttributeDef *ad, int *v, int td)
 }
 
 /* compute the lvalue VT_LVAL_xxx needed to match type t. */
-static int lvalue_type(int t)
+int lvalue_type(int t)
 {
     int bt, r;
     r = VT_LVAL;
