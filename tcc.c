@@ -8423,6 +8423,8 @@ static void gen_function(Sym *sym)
         put_stabn(N_FUN, 0, 0, ind - func_ind);
     }
 #endif
+    /* It's better to crash than to generate wrong code */
+    cur_text_section = NULL;
     funcname = ""; /* for safety */
     func_vt.t = VT_VOID; /* for safety */
     ind = 0; /* for safety */
@@ -8690,6 +8692,7 @@ static int tcc_compile(TCCState *s1)
 #endif
     preprocess_init(s1);
 
+    cur_text_section = NULL;
     funcname = "";
     anon_sym = SYM_FIRST_ANOM; 
 
