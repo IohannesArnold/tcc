@@ -1013,7 +1013,7 @@ char *get_tok_str(int v, CValue *cv)
 }
 
 /* push, without hashing */
-static Sym *sym_push2(Sym **ps, int v, int t, int c)
+static Sym *sym_push2(Sym **ps, int v, int t, long c)
 {
     Sym *s;
     s = sym_malloc();
@@ -1798,7 +1798,7 @@ static inline void define_push(int v, int macro_type, int *str, Sym *first_arg)
 {
     Sym *s;
 
-    s = sym_push2(&define_stack, v, macro_type, (int)str);
+    s = sym_push2(&define_stack, v, macro_type, (long)str);
     s->next = first_arg;
     table_ident[v - TOK_IDENT]->sym_define = s;
 }
