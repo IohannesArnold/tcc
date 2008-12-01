@@ -3930,26 +3930,33 @@ void save_reg(int r)
                 r = p->r & VT_VALMASK;
                 /* store register in the stack */
                 type = &p->type;
+#ifndef TCC_TARGET_X86_64
                 if ((p->r & VT_LVAL) || 
                     (!is_float(type->t) && (type->t & VT_BTYPE) != VT_LLONG))
                     type = &int_type;
+#else
+                if (p->r & VT_LVAL)
+                    type = &char_pointer_type;
+#endif
                 size = type_size(type, &align);
                 loc = (loc - size) & -align;
                 sv.type.t = type->t;
                 sv.r = VT_LOCAL | VT_LVAL;
                 sv.c.ul = loc;
                 store(r, &sv);
-#ifdef TCC_TARGET_I386
+#if defined(TCC_TARGET_I386) || defined(TCC_TARGET_X86_64)
                 /* x86 specific: need to pop fp register ST0 if saved */
                 if (r == TREG_ST0) {
                     o(0xd9dd); /* fstp %st(1) */
                 }
 #endif
+#ifndef TCC_TARGET_X86_64
                 /* special long long case */
                 if ((type->t & VT_BTYPE) == VT_LLONG) {
                     sv.c.ul += 4;
                     store(p->r2, &sv);
                 }
+#endif
                 l = loc;
                 saved = 1;
             }
@@ -4100,8 +4107,7 @@ void gbound(void)
    register value (such as structures). */
 int gv(int rc)
 {
-    int r, r2, rc2, bit_pos, bit_size, size, align, i;
-    unsigned long long ll;
+    int r, rc2, bit_pos, bit_size, size, align, i;
 
     /* NOTE: get_reg can modify vstack[] */
     if (vtop->type.t & VT_BITFIELD) {
@@ -4173,7 +4179,10 @@ int gv(int rc)
             ((vtop->type.t & VT_BTYPE) == VT_LLONG && 
              !(reg_classes[vtop->r2] & rc2))) {
             r = get_reg(rc);
+#ifndef TCC_TARGET_X86_64
             if ((vtop->type.t & VT_BTYPE) == VT_LLONG) {
+                int r2;
+                unsigned long long ll;
                 /* two register type load : expand to two words
                    temporarily */
                 if ((vtop->r & (VT_VALMASK | VT_LVAL)) == VT_CONST) {
@@ -4213,7 +4222,9 @@ int gv(int rc)
                 vpop();
                 /* write second register */
                 vtop->r2 = r2;
-            } else if ((vtop->r & VT_LVAL) && !is_float(vtop->type.t)) {
+            } else
+#endif
+            if ((vtop->r & VT_LVAL) && !is_float(vtop->type.t)) {
                 int t1, t;
                 /* lvalue of scalar type : need to use lvalue type
                    because of possible cast */
@@ -4378,7 +4389,7 @@ void vpop(void)
 {
     int v;
     v = vtop->r & VT_VALMASK;
-#ifdef TCC_TARGET_I386
+#if defined(TCC_TARGET_I386) || defined(TCC_TARGET_X86_64)
     /* for x86, we need to pop the FP stack */
     if (v == TREG_ST0 && !nocode_wanted) {
         o(0xd9dd); /* fstp %st(1) */
@@ -4419,6 +4430,11 @@ void gv_dup(void)
         sv.type.t = VT_INT;
         if (is_float(t)) {
             rc = RC_FLOAT;
+#ifdef TCC_TARGET_X86_64
+            if ((t & VT_BTYPE) == VT_LDOUBLE) {
+                rc = RC_ST0;
+            }
+#endif
             sv.type.t = t;
         }
         r = gv(rc);
@@ -4432,6 +4448,7 @@ void gv_dup(void)
     }
 }
 
+#ifndef TCC_TARGET_X86_64
 /* generate CPU independent (unsigned) long long operations */
 void gen_opl(int op)
 {
@@ -4666,6 +4683,7 @@ void gen_opl(int op)
         break;
     }
 }
+#endif
 
 /* handle integer constant optimizations and various machine
    independent opt */
@@ -4944,7 +4962,11 @@ void gen_op(int op)
         if (op >= TOK_ULT && op <= TOK_LOR) {
             check_comparison_pointer_types(vtop - 1, vtop, op);
             /* pointers are handled are unsigned */
+#ifdef TCC_TARGET_X86_64
+            t = VT_LLONG | VT_UNSIGNED;
+#else
             t = VT_INT | VT_UNSIGNED;
+#endif
             goto std_op;
         }
         /* if both pointers, then it must be the '-' op */
@@ -4956,7 +4978,11 @@ void gen_op(int op)
             u = pointed_size(&vtop[-1].type);
             gen_opic(op);
             /* set to integer type */
+#ifdef TCC_TARGET_X86_64
+            vtop->type.t = VT_LLONG;
+#else
             vtop->type.t = VT_INT; 
+#endif
             vpushi(u);
             gen_op(TOK_PDIV);
         } else {
@@ -4969,8 +4995,18 @@ void gen_op(int op)
                 swap(&t1, &t2);
             }
             type1 = vtop[-1].type;
+#ifdef TCC_TARGET_X86_64
+            {
+                CValue cval;
+                CType ctype;
+                ctype.t = VT_LLONG;
+                cval.ull = pointed_size(&vtop[-1].type);
+                vsetc(&ctype, VT_CONST, &cval);
+            }
+#else
             /* XXX: cast to int ? (long long case) */
             vpushi(pointed_size(&vtop[-1].type));
+#endif
             gen_op('*');
 #ifdef CONFIG_TCC_BCHECK
             /* if evaluating constant expression, no code should be
@@ -5253,6 +5289,7 @@ static void gen_cast(CType *type)
             } else if ((dbt & VT_BTYPE) == VT_LLONG) {
                 if ((sbt & VT_BTYPE) != VT_LLONG) {
                     /* scalar to long long */
+#ifndef TCC_TARGET_X86_64
                     /* machine independent conversion */
                     gv(RC_INT);
                     /* generate high word */
@@ -5267,6 +5304,14 @@ static void gen_cast(CType *type)
                     /* patch second register */
                     vtop[-1].r2 = vtop->r;
                     vpop();
+#else
+                    int r = gv(RC_INT);
+                    if (sbt != (VT_INT | VT_UNSIGNED)) {
+                        /* x86_64 specific: movslq */
+                        o(0x6348);
+                        o(0xc0 + (REG_VALUE(r) << 3) + REG_VALUE(r));
+                    }
+#endif
                 }
             } else if (dbt == VT_BOOL) {
                 /* scalar to bool */
@@ -5718,20 +5763,31 @@ void vstore(void)
 #endif
         if (!nocode_wanted) {
             rc = RC_INT;
-            if (is_float(ft))
+            if (is_float(ft)) {
                 rc = RC_FLOAT;
+#ifdef TCC_TARGET_X86_64
+                if ((ft & VT_BTYPE) == VT_LDOUBLE) {
+                    rc = RC_ST0;
+                }
+#endif
+            }
             r = gv(rc);  /* generate value */
             /* if lvalue was saved on stack, must read it */
             if ((vtop[-1].r & VT_VALMASK) == VT_LLOCAL) {
                 SValue sv;
                 t = get_reg(RC_INT);
+#ifdef TCC_TARGET_X86_64
+                sv.type.t = VT_PTR;
+#else
                 sv.type.t = VT_INT;
+#endif
                 sv.r = VT_LOCAL | VT_LVAL;
                 sv.c.ul = vtop[-1].c.ul;
                 load(t, &sv);
                 vtop[-1].r = t | VT_LVAL;
             }
             store(r, vtop - 1);
+#ifndef TCC_TARGET_X86_64
             /* two word case handling : store second register at word + 4 */
             if ((ft & VT_BTYPE) == VT_LLONG) {
                 vswap();
@@ -5745,6 +5801,7 @@ void vstore(void)
                 /* XXX: it works because r2 is spilled last ! */
                 store(vtop->r2, vtop - 1);
             }
+#endif
         }
         vswap();
         vtop--; /* NOT vpop() because on x86 it would flush the fp stack */
@@ -6250,7 +6307,11 @@ the_end:
 
     /* long is never used as type */
     if ((t & VT_BTYPE) == VT_LONG)
+#ifndef TCC_TARGET_X86_64
         t = (t & ~VT_BTYPE) | VT_INT;
+#else
+        t = (t & ~VT_BTYPE) | VT_LLONG;
+#endif
     type->t = t;
     return type_found;
 }
@@ -7191,8 +7252,14 @@ static void expr_eq(void)
             if (vtop != vstack) {
                 /* needed to avoid having different registers saved in
                    each branch */
-                if (is_float(vtop->type.t))
+                if (is_float(vtop->type.t)) {
                     rc = RC_FLOAT;
+#ifdef TCC_TARGET_X86_64
+                    if ((vtop->type.t & VT_BTYPE) == VT_LDOUBLE) {
+                        rc = RC_ST0;
+                    }
+#endif
+                }
                 else
                     rc = RC_INT;
                     gv(rc);
@@ -7262,6 +7329,11 @@ static void expr_eq(void)
             rc = RC_INT;
             if (is_float(type.t)) {
                 rc = RC_FLOAT;
+#ifdef TCC_TARGET_X86_64
+                if ((type.t & VT_BTYPE) == VT_LDOUBLE) {
+                    rc = RC_ST0;
+                }
+#endif
             } else if ((type.t & VT_BTYPE) == VT_LLONG) {
                 /* for long longs, we use fixed registers to avoid having
                    to handle a complicated move */
@@ -9084,6 +9156,8 @@ static void rt_printline(unsigned long wanted_pc)
     fprintf(stderr, "\n");
 }
 
+#ifdef CONFIG_TCC_DEBUG
+
 #if !defined(_WIN32) && !defined(CONFIG_TCCBOOT)
 
 #ifdef __i386__
@@ -9094,7 +9168,6 @@ static void rt_printline(unsigned long wanted_pc)
 #define REG_EBP EBP
 #endif
 
-#ifdef CONFIG_TCC_DEBUG
 /* return the PC at frame level 'level'. Return non zero if not found */
 static int rt_get_caller_pc(unsigned long *paddr, 
                             ucontext_t *uc, int level)
@@ -9129,8 +9202,30 @@ static int rt_get_caller_pc(unsigned long *paddr,
         return 0;
     }
 }
-#endif /* CONFIG_TCC_DEBUG */
-#endif /* __i386__ */
+#elif defined(__x86_64__)
+/* return the PC at frame level 'level'. Return non zero if not found */
+static int rt_get_caller_pc(unsigned long *paddr,
+                            ucontext_t *uc, int level)
+{
+    unsigned long fp;
+    int i;
+
+    if (level == 0) {
+        /* XXX: only support linux */
+        *paddr = uc->uc_mcontext.gregs[REG_RIP];
+        return 0;
+    } else {
+        fp = uc->uc_mcontext.gregs[REG_RBP];
+        for(i=1;i<level;i++) {
+            /* XXX: check address validity with program info */
+            if (fp <= 0x1000 || fp >= 0xc0000000)
+                return -1;
+            fp = ((unsigned long *)fp)[0];
+        }
+        *paddr = ((unsigned long *)fp)[1];
+        return 0;
+    }
+}
 #else
 
 #warning add arch specific rt_get_caller_pc()
@@ -9140,7 +9235,9 @@ static int rt_get_caller_pc(unsigned long *paddr,
 {
     return -1;
 }
+#endif /* i386 or x86_64 */
 #endif /* WIN32 */
+#endif /* CONFIG_TCC_DEBUG */
 
 #ifdef CONFIG_TCC_DEBUG
 /* emit a run time error at position 'pc' */
@@ -9389,6 +9486,9 @@ TCCState *tcc_new(void)
 #if defined(TCC_TARGET_I386)
     tcc_define_symbol(s, "__i386__", NULL);
 #endif
+#if defined(TCC_TARGET_X86_64)
+    tcc_define_symbol(s, "__x86_64__", NULL);
+#endif
 #if defined(TCC_TARGET_ARM)
     tcc_define_symbol(s, "__ARM_ARCH_4__", NULL);
     tcc_define_symbol(s, "__arm_elf__", NULL);
@@ -9455,6 +9555,10 @@ TCCState *tcc_new(void)
     /* XXX: currently the PE linker is not ready to support that */
     s->leading_underscore = 1;
 #endif
+
+#ifdef TCC_TARGET_X86_64
+    s->jmp_table = NULL;
+#endif
     return s;
 }
 
@@ -9490,6 +9594,9 @@ void tcc_delete(TCCState *s1)
     dynarray_reset(&s1->include_paths, &s1->nb_include_paths);
     dynarray_reset(&s1->sysinclude_paths, &s1->nb_sysinclude_paths);
 
+#ifdef TCC_TARGET_X86_64
+    tcc_free(s1->jmp_table);
+#endif
     tcc_free(s1);
 }
 
