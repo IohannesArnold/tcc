@@ -226,6 +226,7 @@ typedef struct CachedInclude {
 /* parser */
 static struct BufferedFile *file;
 static int ch, tok;
+static CString tok_spaces;  /* spaces before current token */
 static CValue tokc;
 static CString tokcstr; /* current parsed string, if any */
 /* additional informations about token */
