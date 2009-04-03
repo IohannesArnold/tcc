@@ -335,6 +335,9 @@ typedef struct TCCState {
     Section **sections;
     int nb_sections; /* number of sections, including first dummy section */
 
+    Section **priv_sections;
+    int nb_priv_sections; /* number of private sections */
+
     /* got handling */
     Section *got;
     Section *plt;
