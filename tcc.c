@@ -6455,6 +6455,8 @@ static void post_type(CType *type, AttributeDef *ad)
     } else if (tok == '[') {
         /* array definition */
         next();
+	if (tok == TOK_RESTRICT1)
+	    next();
         n = -1;
         if (tok != ']') {
             n = expr_const();
