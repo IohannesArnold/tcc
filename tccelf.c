@@ -333,7 +333,7 @@ void put_stabs_r(const char *str, int type, int other, int desc,
 {
     put_stabs(str, type, other, desc, value);
     put_elf_reloc(symtab_section, stab_section, 
-                  stab_section->data_offset - sizeof(unsigned long),
+                  stab_section->data_offset - sizeof(unsigned int),
                   R_DATA_32, sym_index);
 }
 
