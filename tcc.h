@@ -413,16 +413,6 @@ typedef struct TCCState {
 
     /* output file for preprocessing */
     FILE *outfile;
-
-#ifdef TCC_TARGET_X86_64
-    /* buffer to store jump tables used when the output is memory */
-    char *jmp_table;
-    int jmp_table_num;
-
-    /* buffer to store got tables used when the output is memory */
-    void **got_table;
-    int got_table_num;
-#endif
 } TCCState;
 
 /* The current value can be: */
