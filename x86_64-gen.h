@@ -29,9 +29,12 @@ enum {
 
     TREG_XMM0 = 3,
     TREG_ST0 = 4,
+
+    TREG_MEM = 0x10,
 };
 
-#define REX_BASE(reg) ((reg) >> 3)
+
+#define REX_BASE(reg) (((reg) >> 3) & 1)
 #define REG_VALUE(reg) ((reg) & 7)
 
 static int reg_classes[NB_REGS];

@@ -141,15 +141,37 @@ static void gen_addrpc32(int r, Sym *sym, int c)
     gen_le32(c-4);
 }
 
-/* generate a modrm reference. 'op_reg' contains the addtionnal 3
-   opcode bits */
-static void gen_modrm(int op_reg, int r, Sym *sym, int c)
+/* output got address with relocation */
+static void gen_gotpcrel(int r, Sym *sym, int c)
 {
-    op_reg = op_reg << 3;
+    Section *sr;
+    ElfW(Rela) *rel;
+    greloc(cur_text_section, sym, ind, R_X86_64_GOTPCREL);
+    sr = cur_text_section->reloc;
+    rel = (ElfW(Rela) *)(sr->data + sr->data_offset - sizeof(ElfW(Rela)));
+    rel->r_addend = -4;
+    gen_le32(0);
+
+    if (c) {
+        /* we use add c, %xxx for displacement */
+        o(0x48 + REX_BASE(r));
+        o(0x81);
+        o(0xc0 + REG_VALUE(r));
+        gen_le32(c);
+    }
+}
+
+static void gen_modrm_impl(int op_reg, int r, Sym *sym, int c, int is_got)
+{
+    op_reg = REG_VALUE(op_reg) << 3;
     if ((r & VT_VALMASK) == VT_CONST) {
         /* constant memory reference */
         o(0x05 | op_reg);
-        gen_addrpc32(r, sym, c);
+        if (is_got) {
+            gen_gotpcrel(r, sym, c);
+        } else {
+            gen_addrpc32(r, sym, c);
+        }
     } else if ((r & VT_VALMASK) == VT_LOCAL) {
         /* currently, we use only ebp as base */
         if (c == (char)c) {
@@ -158,6 +180,13 @@ static void gen_modrm(int op_reg, int r, Sym *sym, int c)
             g(c);
         } else {
             oad(0x85 | op_reg, c);
+        }
+    } else if ((r & VT_VALMASK) >= TREG_MEM) {
+        if (c) {
+            g(0x80 | op_reg | REG_VALUE(r));
+            gen_le32(c);
+        } else {
+            g(0x00 | op_reg | REG_VALUE(r));
         }
     } else {
         g(0x00 | op_reg | (r & VT_VALMASK));
@@ -166,8 +195,16 @@ static void gen_modrm(int op_reg, int r, Sym *sym, int c)
 
 /* generate a modrm reference. 'op_reg' contains the addtionnal 3
    opcode bits */
+static void gen_modrm(int op_reg, int r, Sym *sym, int c)
+{
+    gen_modrm_impl(op_reg, r, sym, c, 0);
+}
+
+/* generate a modrm reference. 'op_reg' contains the addtionnal 3
+   opcode bits */
 static void gen_modrm64(int opcode, int op_reg, int r, Sym *sym, int c)
 {
+    int is_got;
     int rex = 0x48 | (REX_BASE(op_reg) << 2);
     if ((r & VT_VALMASK) != VT_CONST &&
         (r & VT_VALMASK) != VT_LOCAL) {
@@ -175,23 +212,8 @@ static void gen_modrm64(int opcode, int op_reg, int r, Sym *sym, int c)
     }
     o(rex);
     o(opcode);
-    op_reg = REG_VALUE(op_reg) << 3;
-    if ((r & VT_VALMASK) == VT_CONST) {
-        /* constant memory reference */
-        o(0x05 | op_reg);
-        gen_addrpc32(r, sym, c);
-    } else if ((r & VT_VALMASK) == VT_LOCAL) {
-        /* currently, we use only ebp as base */
-        if (c == (char)c) {
-            /* short reference */
-            o(0x45 | op_reg);
-            g(c);
-        } else {
-            oad(0x85 | op_reg, c);
-        }
-    } else {
-        g(0x00 | op_reg | (r & VT_VALMASK));
-    }
+    is_got = (op_reg & TREG_MEM) && !(sym->type.t & VT_STATIC);
+    gen_modrm_impl(op_reg, r, sym, c, is_got);
 }
 
 
@@ -204,6 +226,21 @@ void load(int r, SValue *sv)
     fr = sv->r;
     ft = sv->type.t;
     fc = sv->c.ul;
+
+    /* we use indirect access via got */
+    if ((fr & VT_VALMASK) == VT_CONST && (fr & VT_SYM) &&
+        (fr & VT_LVAL) && !(sv->sym->type.t & VT_STATIC)) {
+        /* use the result register as a temporal register */
+        int tr = r | TREG_MEM;
+        if (is_float(ft)) {
+            /* we cannot use float registers as a temporal register */
+            tr = get_reg(RC_INT) | TREG_MEM;
+        }
+        gen_modrm64(0x8b, tr, fr, sv->sym, 0);
+
+        /* load from the temporal register */
+        fr = tr | VT_LVAL;
+    }
 
     v = fr & VT_VALMASK;
     if (fr & VT_LVAL) {
@@ -241,14 +278,21 @@ void load(int r, SValue *sv)
     } else {
         if (v == VT_CONST) {
             if ((ft & VT_BTYPE) == VT_LLONG) {
+                assert(!(fr & VT_SYM));
                 o(0x48);
                 o(0xb8 + REG_VALUE(r)); /* mov $xx, r */
                 gen_addr64(fr, sv->sym, sv->c.ull);
             } else {
                 if (fr & VT_SYM) {
-                    o(0x8d48);
-                    o(0x05 + REG_VALUE(r) * 8); /* lea xx(%rip), r */
-                    gen_addrpc32(fr, sv->sym, fc);
+                    if (sv->sym->type.t & VT_STATIC) {
+                        o(0x8d48);
+                        o(0x05 + REG_VALUE(r) * 8); /* lea xx(%rip), r */
+                        gen_addrpc32(fr, sv->sym, fc);
+                    } else {
+                        o(0x8b48);
+                        o(0x05 + REG_VALUE(r) * 8); /* mov xx(%rip), r */
+                        gen_gotpcrel(r, sv->sym, fc);
+                    }
                 } else {
                     o(0xb8 + REG_VALUE(r)); /* mov $xx, r */
                     gen_le32(fc);
@@ -298,25 +342,42 @@ void store(int r, SValue *v)
 {
     int fr, bt, ft, fc;
     int op64 = 0;
+    /* store the REX prefix in this variable when PIC is enabled */
+    int pic = 0;
 
     ft = v->type.t;
     fc = v->c.ul;
     fr = v->r & VT_VALMASK;
     bt = ft & VT_BTYPE;
+
+    /* we need to access the variable via got */
+    if (fr == VT_CONST && (v->r & VT_SYM)) {
+        /* mov xx(%rip), %r11 */
+        o(0x1d8b4c);
+        gen_gotpcrel(TREG_R11, v->sym, v->c.ul);
+        pic = is64_type(bt) ? 0x49 : 0x41;
+    }
+
     /* XXX: incorrect if float reg to reg */
     if (bt == VT_FLOAT) {
-        o(0x7e0f66); /* movd */
+        o(0x66);
+        o(pic);
+        o(0x7e0f); /* movd */
         r = 0;
     } else if (bt == VT_DOUBLE) {
-        o(0xd60f66); /* movq */
+        o(0x66);
+        o(pic);
+        o(0xd60f); /* movq */
         r = 0;
     } else if (bt == VT_LDOUBLE) {
         o(0xc0d9); /* fld %st(0) */
+        o(pic);
         o(0xdb); /* fstpt */
         r = 7;
     } else {
         if (bt == VT_SHORT)
             o(0x66);
+        o(pic);
         if (bt == VT_BYTE || bt == VT_BOOL)
             o(0x88);
         else if (is64_type(bt))
@@ -324,7 +385,12 @@ void store(int r, SValue *v)
         else
             o(0x89);
     }
-    if (op64) {
+    if (pic) {
+        /* xxx r, (%r11) where xxx is mov, movq, fld, or etc */
+        if (op64)
+            o(op64);
+        o(3 + (r << 3));
+    } else if (op64) {
         if (fr == VT_CONST ||
             fr == VT_LOCAL ||
             (v->r & VT_LVAL)) {
