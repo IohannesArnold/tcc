@@ -23,7 +23,7 @@ void put_stabs_r(const char *str, int type, int other, int desc,
 void relocate_common_syms(void);
 void relocate_syms(TCCState *s1, int do_resolve);
 void relocate_section(TCCState *s1, Section *s);
-int tcc_get_symbol(TCCState *s, unsigned long *pval, const char *name);
+void *tcc_get_symbol(TCCState *s, const char *name);
 Section *new_symtab(TCCState *s1,
                     const char *symtab_name, int sh_type, int sh_flags,
                     const char *strtab_name, 
