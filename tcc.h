@@ -413,6 +413,9 @@ typedef struct TCCState {
 
     /* output file for preprocessing */
     FILE *outfile;
+
+    /* for tcc_relocate */
+    int runtime_added;
 } TCCState;
 
 /* The current value can be: */
