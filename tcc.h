@@ -416,6 +416,12 @@ typedef struct TCCState {
 
     /* for tcc_relocate */
     int runtime_added;
+
+#ifdef TCC_TARGET_X86_64
+    /* write PLT and GOT here */
+    char *runtime_plt_and_got;
+    unsigned int runtime_plt_and_got_offset;
+#endif
 } TCCState;
 
 /* The current value can be: */

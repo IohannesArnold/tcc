@@ -472,12 +472,7 @@ Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags)
 
 static void free_section(Section *s)
 {
-#ifdef TCC_TARGET_X86_64
-    /* after tcc_relocate(), some sections share the data buffer.
-       let's check if the data is allocated not to free the shared buffers */
-    if (s->data_allocated)
-#endif
-        tcc_free(s->data);
+    tcc_free(s->data);
 }
 
 /* realloc section and set its content to zero */
@@ -9469,13 +9464,21 @@ int tcc_relocate(TCCState *s1, void *ptr)
         offset = (offset + length + 15) & ~15;
     }
 
+#ifdef TCC_TARGET_X86_64
+    s1->runtime_plt_and_got_offset = 0;
+    s1->runtime_plt_and_got = (char *)(mem + offset);
+    /* double the size of the buffer for got and plt entries
+       XXX: calculate exact size for them? */
+    offset *= 2;
+#endif
+
+    if (0 == mem)
+        return offset + 15;
+
     /* relocate symbols */
     relocate_syms(s1, 1);
     if (s1->nb_errors)
         return -1;
-
-    if (0 == mem)
-        return offset + 15;
 
     /* relocate each section */
     for(i = 1; i < s1->nb_sections; i++) {
@@ -9499,6 +9502,10 @@ int tcc_relocate(TCCState *s1, void *ptr)
         if (s->sh_flags & SHF_EXECINSTR)
             set_pages_executable(ptr, length);
     }
+#ifdef TCC_TARGET_X86_64
+    set_pages_executable(s1->runtime_plt_and_got,
+                         s1->runtime_plt_and_got_offset);
+#endif
     return 0;
 }
 
