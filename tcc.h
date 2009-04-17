@@ -226,7 +226,6 @@ typedef struct CachedInclude {
 /* parser */
 static struct BufferedFile *file;
 static int ch, tok;
-static CString tok_spaces;  /* spaces before current token */
 static CValue tokc;
 static CString tokcstr; /* current parsed string, if any */
 /* additional informations about token */
@@ -247,6 +246,7 @@ static int parse_flags;
                                         token. line feed is also
                                         returned at eof */
 #define PARSE_FLAG_ASM_COMMENTS 0x0008 /* '#' can be used for line comment */
+#define PARSE_FLAG_SPACES     0x0010 /* next() returns space tokens (for -E) */
 
 static Section *text_section, *data_section, *bss_section; /* predefined sections */
 static Section *cur_text_section; /* current section where function code is
