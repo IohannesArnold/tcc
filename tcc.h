@@ -20,6 +20,33 @@
 #include <setjmp.h>
 #include <stdio.h>
 
+#ifdef CONFIG_TCC_DEBUG
+/* compile with debug symbol (and use them if error during execution) */
+static int do_debug = 0;
+#endif
+
+#ifdef CONFIG_TCC_BCHECK
+/* compile with built-in memory and bounds checker */
+static int do_bounds_check = 0;
+#endif
+
+/* display benchmark infos */
+static int do_bench = 0;
+static int total_lines;
+static int total_bytes;
+
+/* use GNU C extensions */
+static int gnu_ext = 1;
+
+/* use Tiny C extensions */
+static int tcc_ext = 1;
+
+/* max number of callers shown if error */
+#ifdef CONFIG_TCC_BACKTRACE
+static int num_callers = 6;
+static const char **rt_bound_error_msg;
+#endif
+
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
@@ -682,9 +709,10 @@ struct macro_level {
 char *pstrcpy(char *buf, int buf_size, const char *s);
 char *pstrcat(char *buf, int buf_size, const char *s);
 
+char *tcc_basename(const char *name);
+
 void gexpr(void);
 void minp(void);
-char *parse_comment(char *p);
 int gv(int rc);
 void gv2(int rc1, int rc2);
 void move_reg(int r, int s);
@@ -694,23 +722,30 @@ void vpop(void);
 void vswap(void);
 void vdup(void);
 int get_reg(int rc);
-int handle_eob(void);
+int toup(int c);
+int isoct(int c);
+void put_extern_sym(Sym *sym, Section *section, 
+                    unsigned long value, unsigned long size);
 
 void free_defines(Sym *b);
-void next(void);
 Sym *label_push(Sym **ptop, int v, int flags);
 Sym *label_find(int v);
 TokenSym *tok_alloc(const char *str, int len);
 void cstr_ccat(CString *cstr, int ch);
+void cstr_wccat(CString *cstr, int ch);
 void cstr_cat(CString *cstr, const char *str);
 void cstr_free(CString *cstr);
 void cstr_new(CString *cstr);
 void gexpr(void);
+int expr_const(void);
 void gen_op(int op);
 void force_charshort_cast(int t);
 void vstore(void);
 Sym *sym_push(int v, CType *type, int r, int c);
+TokenSym *tok_alloc_new(TokenSym **pts, const char *str, int len);
 
+Sym *sym_find2(Sym *s, int v);
+Sym *sym_push2(Sym **ps, int v, int t, long c);
 /* type handling */
 int type_size(CType *type, int *a);
 
@@ -743,6 +778,21 @@ void dynarray_add(void ***ptab, int *nb_ptr, void *data);
  
 #define SECTION_ABS ((void *)1)
 
+#define TOK_HASH_INIT 1
+#define TOK_HASH_FUNC(h, c) ((h) * 263 + (c))
+
+#ifdef _WIN32
+#define IS_PATHSEP(c) (c == '/' || c == '\\')
+#define IS_ABSPATH(p) (IS_PATHSEP(p[0]) || (p[0] && p[1] == ':' && IS_PATHSEP(p[2])))
+#define PATHCMP stricmp
+#else
+#define IS_PATHSEP(c) (c == '/')
+#define IS_ABSPATH(p) IS_PATHSEP(p[0])
+#define PATHCMP strcmp
+#endif
+
+#define cstr_reset(cstr) cstr_free(cstr)
+
 static inline int isid(int c)
 {
     return (c >= 'a' && c <= 'z') ||
@@ -765,15 +815,6 @@ static inline int is_float(int t)
 
 /* read one char. MUST call tcc_fillbuf if CH_EOB is read */
 #define TCC_GETC(bf) (*(bf)->buf_ptr++)
-
-/* read next char from current input file and handle end of input buffer */
-static inline void inp(void)
-{
-    ch = *(++(file->buf_ptr));
-    /* end of buffer/file handling */
-    if (ch == CH_EOB)
-        ch = handle_eob();
-}
 
 /* memory management */
 #ifdef MEM_DEBUG
