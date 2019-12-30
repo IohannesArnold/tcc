@@ -1,21 +1,28 @@
 cc = gcc
 
-cflags = -I. 
-static-cflags = -static -I. -DCONFIG_TCC_STATIC
+cflags = -I.
+static = -static -DCONFIG_TCC_STATIC
+
+rule object-cc
+  command = $cc $cflags -c -o $out $in
 
 rule cc
   command = $cc $cflags -o $out $in
 
 rule static-cc
-  command = $cc $static-cflags -o $out $in
+  command = $cc $static $cflags -o $out $in
 
 rule tcc
   command = ./static-tcc -I. -DCONFIG_TCC_STATIC -D__TINYC__ $in -o $out
 
-build static-tcc: static-cc tcc.c
+build i386-gen.o: object-cc i386-gen.c
 
-build tcc: cc tcc.c
+build tcc.o: object-cc tcc.c
 
-build tcc2: tcc tcc.c | static-tcc
+build static-tcc: static-cc tcc.o i386-gen.o
 
-default tcc static-tcc
+build tcc: cc tcc.o i386-gen.o
+
+build tcc2: tcc tcc.c i386-gen.c
+
+default static-tcc

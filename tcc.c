@@ -18,6 +18,7 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include "tcc.h"
 #ifdef __TINYC__
 #include <tcclib.h>
 #else
@@ -67,27 +68,10 @@ typedef struct TokenSym {
     char str[1];
 } TokenSym;
 
-/* symbol management */
-typedef struct Sym {
-    int v;    /* symbol token */
-    int t;    /* associated type */
-    int c;    /* associated number */
-    struct Sym *next; /* next related symbol */
-    struct Sym *prev; /* prev symbol in stack */
-    struct Sym *hash_next; /* next symbol in hash table */
-} Sym;
-
 typedef struct SymStack {
   struct Sym *top;
   struct Sym *hash[SYM_HASH_SIZE];
 } SymStack;
-
-/* relocation entry (currently only used for functions or variables */
-typedef struct Reloc {
-    int type;            /* type of relocation */
-    int addr;            /* address of relocation */
-    struct Reloc *next;  /* next relocation */
-} Reloc;
 
 #define RELOC_ADDR32 1  /* 32 bits relocation */
 #define RELOC_REL32  2  /* 32 bits relative relocation */
@@ -119,15 +103,6 @@ typedef struct {
 FILE *file;
 int ch, ch1, tok, tokc, tok1, tok1c;
 
-/* loc : local variable index
-   glo : global variable index
-   ind : output code ptr
-   rsym: return symbol
-   prog: output code
-   anon_sym: anonymous symbol index
-*/
-int rsym, anon_sym,
-    prog, ind, loc, glo, vt, vc, const_wanted, line_num;
 int global_expr; /* true if compound literals must be allocated
                     globally (used during initializers parsing */
 int func_vt, func_vc; /* current function return type (used by
@@ -141,7 +116,6 @@ char *filename, *funcname;
 SymStack extern_stack;
 SymStack define_stack, global_stack, local_stack, label_stack;
 
-int vstack[VSTACK_SIZE], *vstack_ptr;
 int *macro_ptr, *macro_ptr_allocated;
 IncludeFile include_stack[INCLUDE_STACK_SIZE], *include_stack_ptr;
 int ifdef_stack[IFDEF_STACK_SIZE], *ifdef_stack_ptr;
@@ -238,70 +212,6 @@ int gnu_ext = 1;
 
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
-
-enum {
-    TOK_INT = TOK_IDENT,
-    TOK_VOID,
-    TOK_CHAR,
-    TOK_IF,
-    TOK_ELSE,
-    TOK_WHILE,
-    TOK_BREAK,
-    TOK_RETURN,
-    TOK_FOR,
-    TOK_EXTERN,
-    TOK_STATIC,
-    TOK_UNSIGNED,
-    TOK_GOTO,
-    TOK_DO,
-    TOK_CONTINUE,
-    TOK_SWITCH,
-    TOK_CASE,
-
-    /* ignored types Must have contiguous values */
-    TOK_CONST,
-    TOK_VOLATILE,
-    TOK_LONG,
-    TOK_REGISTER,
-    TOK_SIGNED,
-    TOK_AUTO,
-    TOK_INLINE,
-    TOK_RESTRICT,
-
-    /* unsupported type */
-    TOK_FLOAT,
-    TOK_DOUBLE,
-
-    TOK_SHORT,
-    TOK_STRUCT,
-    TOK_UNION,
-    TOK_TYPEDEF,
-    TOK_DEFAULT,
-    TOK_ENUM,
-    TOK_SIZEOF,
-
-    /* preprocessor only */
-    TOK_UIDENT, /* first "user" ident (not keyword) */
-    TOK_DEFINE = TOK_UIDENT,
-    TOK_INCLUDE,
-    TOK_IFDEF,
-    TOK_IFNDEF,
-    TOK_ELIF,
-    TOK_ENDIF,
-    TOK_DEFINED,
-    TOK_UNDEF,
-    TOK_ERROR,
-    TOK_LINE,
-    TOK___LINE__,
-    TOK___FILE__,
-    TOK___DATE__,
-    TOK___TIME__,
-    TOK___VA_ARGS__,
-
-    /* special identifiers */
-    TOK___FUNC__,
-    TOK_MAIN,
-};
 
 void sum();
 void next(void);
@@ -1542,289 +1452,6 @@ void vset(t, v)
 typedef struct GFuncContext {
     int args_size;
 } GFuncContext;
-
-void g(int c)
-{
-    *(char *)ind++ = c;
-}
-
-void o(int c)
-{
-    while (c) {
-        g(c);
-        c = c / 256;
-    }
-}
-
-void gen_le32(int c)
-{
-    g(c);
-    g(c >> 8);
-    g(c >> 16);
-    g(c >> 24);
-}
-
-/* add a new relocation entry to symbol 's' */
-void greloc(Sym *s, int addr, int type)
-{
-    Reloc *p;
-    p = malloc(sizeof(Reloc));
-    if (!p)
-        error("memory full");
-    p->type = type;
-    p->addr = addr;
-    p->next = (Reloc *)s->c;
-    s->c = (int)p;
-}
-
-/* patch each relocation entry with value 'val' */
-void greloc_patch(Sym *s, int val)
-{
-    Reloc *p, *p1;
-
-    p = (Reloc *)s->c;
-    while (p != NULL) {
-        p1 = p->next;
-        switch(p->type) {
-        case RELOC_ADDR32:
-            *(int *)p->addr = val;
-            break;
-        case RELOC_REL32:
-            *(int *)p->addr = val - p->addr - 4;
-            break;
-        }
-        free(p);
-        p = p1;
-    }
-    s->c = val;
-    s->t &= ~VT_FORWARD;
-}
-
-/* output a symbol and patch all calls to it */
-void gsym_addr(t, a)
-{
-    int n;
-    while (t) {
-        n = *(int *)t; /* next value */
-        *(int *)t = a - t - 4;
-        t = n;
-    }
-}
-
-void gsym(t)
-{
-    gsym_addr(t, ind);
-}
-
-/* psym is used to put an instruction with a data field which is a
-   reference to a symbol. It is in fact the same as oad ! */
-#define psym oad
-
-/* instruction + 4 bytes data. Return the address of the data */
-int oad(int c, int s)
-{
-    o(c);
-    *(int *)ind = s;
-    s = ind;
-    ind = ind + 4;
-    return s;
-}
-
-/* output constant with relocation if 't & VT_FORWARD' is true */
-void gen_addr32(int c, int t)
-{
-    if (!(t & VT_FORWARD)) {
-        gen_le32(c);
-    } else {
-        greloc((Sym *)c, ind, RELOC_ADDR32);
-        gen_le32(0);
-    }
-}
-
-/* XXX: generate correct pointer for forward references to functions */
-/* r = (ft, fc) */
-void load(int r, int ft, int fc)
-{
-    int v, t;
-
-    v = ft & VT_VALMASK;
-    if (ft & VT_LVAL) {
-        if (v == VT_LLOCAL) {
-            load(r, VT_LOCAL | VT_LVAL, fc);
-            v = r;
-        }
-        if ((ft & VT_TYPE) == VT_BYTE)
-            o(0xbe0f);   /* movsbl */
-        else if ((ft & VT_TYPE) == (VT_BYTE | VT_UNSIGNED))
-            o(0xb60f);   /* movzbl */
-        else if ((ft & VT_TYPE) == VT_SHORT)
-            o(0xbf0f);   /* movswl */
-        else if ((ft & VT_TYPE) == (VT_SHORT | VT_UNSIGNED))
-            o(0xb70f);   /* movzwl */
-        else
-            o(0x8b);     /* movl */
-        if (v == VT_CONST) {
-            o(0x05 + r * 8); /* 0xXX, r */
-            gen_addr32(fc, ft);
-        } else if (v == VT_LOCAL) {
-            oad(0x85 + r * 8, fc); /* xx(%ebp), r */
-        } else {
-            g(0x00 + r * 8 + v); /* (v), r */
-        }
-    } else {
-        if (v == VT_CONST) {
-            o(0xb8 + r); /* mov $xx, r */
-            gen_addr32(fc, ft);
-        } else if (v == VT_LOCAL) {
-            o(0x8d);
-            oad(0x85 + r * 8, fc); /* lea xxx(%ebp), r */
-        } else if (v == VT_CMP) {
-            oad(0xb8 + r, 0); /* mov $0, r */
-            o(0x0f); /* setxx %br */
-            o(fc);
-            o(0xc0 + r);
-        } else if (v == VT_JMP || v == VT_JMPI) {
-            t = v & 1;
-            oad(0xb8 + r, t); /* mov $1, r */
-            oad(0xe9, 5); /* jmp after */
-            gsym(fc);
-            oad(0xb8 + r, t ^ 1); /* mov $0, r */
-        } else if (v != r) {
-            o(0x89);
-            o(0xc0 + r + v * 8); /* mov v, r */
-        }
-    }
-}
-
-/* (ft, fc) = r */
-/* WARNING: r must not be allocated on the stack */
-void store(r, ft, fc)
-{
-    int fr, bt;
-
-    fr = ft & VT_VALMASK;
-    bt = ft & VT_BTYPE;
-    /* XXX: incorrect if reg to reg */
-    if (bt == VT_SHORT)
-        o(0x66);
-    if (bt == VT_BYTE)
-        o(0x88);
-    else
-        o(0x89);
-    if (fr == VT_CONST) {
-        o(0x05 + r * 8); /* mov r,xxx */
-        gen_addr32(fc, ft);
-    } else if (fr == VT_LOCAL) {
-        oad(0x85 + r * 8, fc); /* mov r,xxx(%ebp) */
-    } else if (ft & VT_LVAL) {
-        g(fr + r * 8); /* mov r, (fr) */
-    } else if (fr != r) {
-        o(0xc0 + fr + r * 8); /* mov r, fr */
-    }
-}
-
-/* start function call and return function call context */
-void gfunc_start(GFuncContext *c)
-{
-    c->args_size = 0;
-}
-
-/* push function parameter which is in (vt, vc) */
-void gfunc_param(GFuncContext *c)
-{
-    int size, align, ft, fc, r;
-
-    if ((vt & (VT_BTYPE | VT_LVAL)) == (VT_STRUCT | VT_LVAL)) {
-        size = type_size(vt, &align);
-        /* align to stack align size */
-        size = (size + 3) & ~3;
-        /* allocate the necessary size on stack */
-        oad(0xec81, size); /* sub $xxx, %esp */
-        /* generate structure store */
-        r = get_reg();
-        o(0x89); /* mov %esp, r */
-        o(0xe0 + r);
-        ft = vt;
-        fc = vc;
-        vset(VT_INT | r, 0);
-        vpush();
-        vt = ft;
-        vc = fc;
-        vstore();
-        c->args_size += size;
-    } else {
-        /* simple type (currently always same size) */
-        /* XXX: implicit cast ? */
-        r = gv();
-        o(0x50 + r); /* push r */
-        c->args_size += 4;
-    }
-}
-
-/* generate function call with address in (vt, vc) and free function
-   context */
-void gfunc_call(GFuncContext *c)
-{
-    int r;
-    if ((vt & (VT_VALMASK | VT_LVAL)) == VT_CONST) {
-        /* constant case */
-        /* forward reference */
-        if (vt & VT_FORWARD) {
-            greloc((Sym *)vc, ind + 1, RELOC_REL32);
-            oad(0xe8, 0);
-        } else {
-            oad(0xe8, vc - ind - 5);
-        }
-    } else {
-        /* otherwise, indirect call */
-        r = gv();
-        o(0xff); /* call *r */
-        o(0xd0 + r);
-    }
-    if (c->args_size)
-        oad(0xc481, c->args_size); /* add $xxx, %esp */
-}
-
-int gjmp(int t)
-{
-    return psym(0xe9, t);
-}
-
-/* generate a test. set 'inv' to invert test */
-int gtst(int inv, int t)
-{
-    int v, *p;
-    v = vt & VT_VALMASK;
-    if (v == VT_CMP) {
-        /* fast case : can jump directly since flags are set */
-        g(0x0f);
-        t = psym((vc - 16) ^ inv, t);
-    } else if (v == VT_JMP || v == VT_JMPI) {
-        /* && or || optimization */
-        if ((v & 1) == inv) {
-            /* insert vc jump list in t */
-            p = &vc;
-            while (*p != 0)
-                p = (int *)*p;
-            *p = t;
-            t = vc;
-        } else {
-            t = gjmp(t);
-            gsym(vc);
-        }
-    } else if ((vt & (VT_VALMASK | VT_LVAL)) == VT_CONST) {
-        /* constant jmp optimization */
-        if ((vc != 0) != inv) 
-            t = gjmp(t);
-    } else {
-        v = gv();
-        o(0x85);
-        o(0xc0 + v * 9);
-        g(0x0f);
-        t = psym(0x85 ^ inv, t);
-    }
-    return t;
-}
 
 /* generate a binary operation 'v = r op fr' instruction and modifies
    (vt,vc) if needed */

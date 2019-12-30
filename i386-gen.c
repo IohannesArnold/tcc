@@ -1,3 +1,5 @@
+#include <tcclib.h> 
+#include "tcc.h"
 /******************************************************/
 /* X86 code generator */
 
