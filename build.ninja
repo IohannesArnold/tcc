@@ -5,7 +5,7 @@ rule cc
   command = $cc $cflags -o $out $in
 
 rule tcc
-  command = ./tcc $in
+  command = ./tcc -I. $in -o $out
 
 build tcc: cc tcc.c
 
