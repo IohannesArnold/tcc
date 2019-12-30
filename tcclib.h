@@ -15,6 +15,7 @@ void *realloc(void *ptr, size_t size);
 int atoi(const char *nptr);
 long int strtol(const char *nptr, char **endptr, int base);
 unsigned long int strtoul(const char *nptr, char **endptr, int base);
+void exit(int status);
 
 /* stdio.h */
 typedef struct __FILE FILE;
@@ -31,6 +32,7 @@ size_t  fwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
 int fgetc(FILE *stream);
 char *fgets(char *s, int size, FILE *stream);
 int getc(FILE *stream);
+int getc_unlocked(FILE *stream);
 int getchar(void);
 char *gets(char *s);
 int ungetc(int c, FILE *stream);
@@ -52,12 +54,15 @@ int vdprintf(int d, const char *format, va_list ap);
 void perror(const char *s);
 
 /* string.h */
+size_t strlen(const char *str);
 char *strcat(char *dest, const char *src);
 char *strchr(const char *s, int c);
 char *strrchr(const char *s, int c);
 char *strcpy(char *dest, const char *src);
+int strcmp(const char *str1, const char *str2);
 void *memcpy(void *dest, const void *src, size_t n);
 void *memset(void *s, int c, size_t n);
+int memcmp (const void * ptr1, const void * ptr2, size_t num);
 char *strdup(const char *s);
 
 /* dlfcn.h */

@@ -17,12 +17,17 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
+
+#ifdef __TINYC__
+#include <tcclib.h>
+#else
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #ifndef CONFIG_TCC_STATIC
 #include <dlfcn.h>
+#endif
 #endif
 
 //#define DEBUG
