@@ -1,0 +1,14 @@
+cc = gcc
+cflags = -static -I.
+
+rule cc
+  command = $cc $cflags -o $out $in
+
+rule tcc
+  command = ./tcc $in
+
+build tcc: cc tcc.c
+
+build tcc2: tcc tcc.c | tcc
+
+default tcc

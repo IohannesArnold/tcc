@@ -9,6 +9,15 @@ compiler should be able to compile major software, including GCC.
 
 ### Getting Started
 
+To compile TCC you need:
+
+ - A ninja build system, either: [ninja](https://github.com/ninja-build/ninja)
+   or [samurai](https://github.com/michaelforney/samurai)
+ - A i386 C compiler
+
+To compile, simply finish the line `cc = ` with your compiler, and `cflags = ` 
+with the CFLAGS you want. Then issue the command `ninja`.
+
 ### Next Steps
 
 ### See Also
