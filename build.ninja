@@ -1,14 +1,21 @@
 cc = gcc
-cflags = -static -I.
+
+cflags = -I. 
+static-cflags = -static -I. -DCONFIG_TCC_STATIC
 
 rule cc
   command = $cc $cflags -o $out $in
 
+rule static-cc
+  command = $cc $static-cflags -o $out $in
+
 rule tcc
   command = ./tcc -I. $in -o $out
 
+build static-tcc: static-cc tcc.c
+
 build tcc: cc tcc.c
 
-build tcc2: tcc tcc.c | tcc
+build tcc2: tcc tcc.c | static-tcc
 
-default tcc
+default tcc static-tcc
