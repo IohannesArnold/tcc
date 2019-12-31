@@ -19,6 +19,7 @@
  */
 
 #include "tcc.h"
+#include "i386-gen.h"
 #ifdef __TINYC__
 #include <tcclib.h>
 #else
@@ -205,6 +206,13 @@ int gnu_ext = 1;
 
 /* all identificators and strings have token above that */
 #define TOK_IDENT 256
+
+int reg_classes[NB_REGS] = {
+    REG_CLASS_INT,    /* eax */
+    REG_CLASS_INT,    /* ecx */
+    REG_CLASS_INT,    /* edx */
+    REG_CLASS_FLOAT,  /* st0 */
+};
 
 void sum();
 void next(void);

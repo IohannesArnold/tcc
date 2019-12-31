@@ -155,6 +155,7 @@ enum {
     /* unsupported type */
     TOK_FLOAT,
     TOK_DOUBLE,
+    TOK_BOOL,
 
     TOK_SHORT,
     TOK_STRUCT,
