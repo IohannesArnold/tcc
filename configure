@@ -51,7 +51,7 @@ trycc () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
 
 # Beginning of actual script
 
-obj_files="tcc.o"
+obj_files="libtcc-rt.o tcc.o"
 build_arch=
 host_arch=
 target_arch=
@@ -150,6 +150,6 @@ EOF
 done
 
 cat >> build.ninja << EOF
-build tcc: link $obj_files
+build tcc: link ${obj_files#libtcc-rt.o }
 EOF
 exit 0

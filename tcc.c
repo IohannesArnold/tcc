@@ -21,7 +21,7 @@
 #include "tcc.h"
 #include "i386-gen.h"
 #ifdef __TINYC__
-#include <tcclib.h>
+#include "tcclibc.h"
 #else
 #include <stdarg.h>
 #include <stdlib.h>
@@ -6545,7 +6545,7 @@ static void put_dt(Section *dynamic, int dt, unsigned long val)
 /* add tcc runtime libraries */
 static void tcc_add_runtime(TCCState *s1)
 {
-    tcc_add_file(s1, CONFIG_TCC_PREFIX "/lib/tcc/libtcc1.o");
+    tcc_add_file(s1, CONFIG_TCC_PREFIX "/lib/tcc/libtcc-rt.o");
 }
 
 /* add dynamic sections so that the executable is dynamically linked */

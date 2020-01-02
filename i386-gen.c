@@ -20,7 +20,7 @@
 
 #include "tcc.h"
 #include "i386-gen.h"
-#include <tcclib.h> 
+#include "tcclibc.h" 
 
 static int *func_sub_sp_ptr;
 static unsigned char *func_bound_ptr;
