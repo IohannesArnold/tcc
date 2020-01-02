@@ -52,15 +52,6 @@
 /* preprocessor debug */
 //#define PP_DEBUG
 
-/* target selection */
-//#define TCC_TARGET_I386   /* i386 code generator */
-//#define TCC_TARGET_IL     /* .NET CLI generator */
-
-/* default target is I386 */
-#if !defined(TCC_TARGET_I386) && !defined(TCC_TARGET_IL)
-#define TCC_TARGET_I386
-#endif
-
 #ifndef CONFIG_TCC_PREFIX
 #define CONFIG_TCC_PREFIX "/usr/local"
 #endif

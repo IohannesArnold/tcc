@@ -1,4 +1,4 @@
-static-tcc
+build.ninja
 tcc
 .ninja_deps
 .ninja_log
