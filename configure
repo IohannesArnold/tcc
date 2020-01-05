@@ -9,10 +9,10 @@ Generates build.ninja files
 Usage: $0 [OPTION]... [VAR=VALUE]...
 
 To assign environment variables (e.g., CC, CFLAGS...), specify them as
-VAR=VALUE. Unlike with Make, environment variables are captured ony at
-configuration time and later changes to the environment are not picked
-up by Ninja. If you want to change the variables in the build, run
-$0 again.
+VAR=VALUE. Unlike with Make, environment variables are captured only
+at configuration time and later changes to the environment are not
+picked up by Ninja. If you want to change the variables in the build,
+run $0 again.
 
 Defaults for the options are specified in brackets.
 
@@ -25,6 +25,9 @@ System types:
                           TARGET CPU architecture [HOST]
 
 Optional features:
+  --enable-asm            compile TCC with assembly support [enabled]
+  --enable-debug          compile TCC with debugging support (requires
+                          glibc) [disabled]
   --enable-boundry-check  compile TCC with boundry-checking support
                           (requires glibc) [disabled]
   --enable-static         statically link compiler [enabled]
@@ -57,6 +60,7 @@ host_arch=
 target_arch=
 static='-static -DCONFIG_TCC_STATIC'
 boundry=
+with_asm='-DCONFIG_TCC_ASM'
 cpp_defs=
 
 for arg ; do
@@ -65,10 +69,14 @@ case "$arg" in
 --build=*) build_arch=${arg#*=} ;;
 --host=*) host_arch=${arg#*=} ;;
 --target=*) target_arch=${arg#*=} ;;
---enable-static|--enable-static=yes) static='-static -DCONFIG_TCC_STATIC' ;;
---disable-static|--enable-static=no) static= ;;
+--enable-asm|--enable-asm=yes) with_asm='-DCONFIG_TCC_ASM' ;;
+--disable-asm|--enable-asm=no) with_asm= ;;
+--enable-debug|--enable-debug=yes) cpp_defs="$cpp_defs -DCONFIG_TCC_DEBUG";;
+--disable-debug|--enable-debug=no) ;;
 --enable-boundry-check|--enable-boundry-check=yes) boundry=yes ;;
 --disable-boundry-check|--enable-boundry-check=no) boundry= ;;
+--enable-static|--enable-static=yes) static='-static -DCONFIG_TCC_STATIC' ;;
+--disable-static|--enable-static=no) static= ;;
 -* ) echo "$0: unknown option $arg" ;;
 CC=*) CC=${arg#*=} ;;
 CFLAGS=*) CFLAGS=${arg#*=} ;;
@@ -113,6 +121,10 @@ printf "%s\n" "$CC"
 
 # Update obj targets
 obj_files="$obj_files ${target_arch}-gen.o"
+if [ -n "$with_asm" ]; then
+obj_files="$obj_files tccasm.o ${target_arch}-asm.o"
+cpp_defs="$cpp_defs $with_asm"
+fi 
 if [ -n "$boundry" ]; then
 obj_files="$obj_files bcheck.o"
 cpp_defs="$cpp_defs -DCONFIG_TCC_BCHECK"
@@ -136,7 +148,7 @@ static=$static
 defs=$cpp_defs
 
 rule obj-compile
-  command = \$cc \$cflags -I. -c \$defs -o \$out \$in
+  command = \$cc \$static \$cflags -I. -c \$defs -o \$out \$in
 
 rule link
   command = \$cc \$static \$cflags -o \$out \$in

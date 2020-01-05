@@ -41,7 +41,7 @@
 #else
 #include <sys/time.h>
 #endif
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
 #include <sys/ucontext.h>
 #endif
 #include "elf.h"
@@ -62,7 +62,7 @@
 
 //#define MEM_DEBUG
 
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
 /* compile with debug symbol (and use them if error during execution) */
 static int do_debug = 0;
 #endif
@@ -123,10 +123,8 @@ extern float strtof (const char *__nptr, char **__endptr);
 extern long double strtold (const char *__nptr, char **__endptr);
 #endif
 
-static char *pstrcpy(char *buf, int buf_size, const char *s);
 static char *pstrcat(char *buf, int buf_size, const char *s);
 
-static void next(void);
 static void next_nomacro(void);
 static void parse_expr_type(CType *type);
 static void expr_type(CType *type);
@@ -135,7 +133,6 @@ static void block(int *bsym, int *csym, int *case_sym, int *def_sym,
                   int case_reg, int is_expr);
 static int expr_const(void);
 static void expr_eq(void);
-static void gexpr(void);
 static void decl(int l);
 static void decl_initializer(CType *type, Section *sec, unsigned long c, 
                              int first, int size_only);
@@ -156,37 +153,6 @@ static void type_decl(CType *type, AttributeDef *ad, int *v, int td);
 
 static int tcc_add_file_internal(TCCState *s, const char *filename, int flags);
 
-/* tccasm.c */
-
-#ifdef CONFIG_TCC_ASM
-
-typedef struct ExprValue {
-    uint32_t v;
-    Sym *sym;
-} ExprValue;
-
-#define MAX_ASM_OPERANDS 30
-
-typedef struct ASMOperand {
-    int id; /* GCC 3 optionnal identifier (0 if number only supported */
-    char *constraint;
-    char asm_str[16]; /* computed asm string for operand */
-    SValue *vt; /* C value of the expression */
-    int ref_index; /* if >= 0, gives reference to a output constraint */
-    int priority; /* priority, used to assign registers */
-    int reg; /* if >= 0, register number used for this operand */
-} ASMOperand;
-
-static void asm_expr(TCCState *s1, ExprValue *pe);
-static int asm_int_expr(TCCState *s1);
-static int find_constraint(ASMOperand *operands, int nb_operands, 
-                           const char *name, const char **pp);
-
-static int tcc_assemble(TCCState *s1, int do_preprocess);
-
-#endif
-
-static void asm_instr(void);
 
 #ifdef CONFIG_TCC_STATIC
 
@@ -248,7 +214,7 @@ int ieee_finite(double d)
 }
 
 /* copy a string and truncate it. */
-static char *pstrcpy(char *buf, int buf_size, const char *s)
+char *pstrcpy(char *buf, int buf_size, const char *s)
 {
     char *q, *q_end;
     int c;
@@ -421,7 +387,7 @@ Section *find_section(TCCState *s1, const char *name)
 
 /* update sym->c so that it points to an external symbol in section
    'section' with value 'value' */
-static void put_extern_sym(Sym *sym, Section *section, 
+void put_extern_sym(Sym *sym, Section *section, 
                            unsigned long value, unsigned long size)
 {
     int sym_type, sym_bind, sh_num, info;
@@ -612,7 +578,7 @@ void skip(int c)
     next();
 }
 
-static void test_lvalue(void)
+void test_lvalue(void)
 {
     if (!(vtop->r & VT_LVAL))
         expect("lvalue");
@@ -655,7 +621,7 @@ static TokenSym *tok_alloc_new(TokenSym **pts, const char *str, int len)
 #define TOK_HASH_FUNC(h, c) ((h) * 263 + (c))
 
 /* find a token and add it if not found */
-static TokenSym *tok_alloc(const char *str, int len)
+TokenSym *tok_alloc(const char *str, int len)
 {
     TokenSym *ts, **pts;
     int i;
@@ -699,7 +665,7 @@ static void cstr_realloc(CString *cstr, int new_size)
 }
 
 /* add a byte */
-static void cstr_ccat(CString *cstr, int ch)
+void cstr_ccat(CString *cstr, int ch)
 {
     int size;
     size = cstr->size + 1;
@@ -709,7 +675,7 @@ static void cstr_ccat(CString *cstr, int ch)
     cstr->size = size;
 }
 
-static void cstr_cat(CString *cstr, const char *str)
+void cstr_cat(CString *cstr, const char *str)
 {
     int c;
     for(;;) {
@@ -732,13 +698,13 @@ static void cstr_wccat(CString *cstr, int ch)
     cstr->size = size;
 }
 
-static void cstr_new(CString *cstr)
+void cstr_new(CString *cstr)
 {
     memset(cstr, 0, sizeof(CString));
 }
 
 /* free string and reset it to NULL */
-static void cstr_free(CString *cstr)
+void cstr_free(CString *cstr)
 {
     tcc_free(cstr->data_allocated);
     cstr_new(cstr);
@@ -1694,7 +1660,7 @@ static void free_defines(Sym *b)
 }
 
 /* label lookup */
-static Sym *label_find(int v)
+Sym *label_find(int v)
 {
     v -= TOK_IDENT;
     if ((unsigned)v >= (unsigned)(tok_ident - TOK_IDENT))
@@ -1702,7 +1668,7 @@ static Sym *label_find(int v)
     return table_ident[v]->sym_label;
 }
 
-static Sym *label_push(Sym **ptop, int v, int flags)
+Sym *label_push(Sym **ptop, int v, int flags)
 {
     Sym *s, **ps;
     s = sym_push2(ptop, v, 0, 0);
@@ -2027,7 +1993,7 @@ static void preprocess(int is_bof)
             *s1->include_stack_ptr++ = file;
             file = f;
             /* add include file debug info */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
             if (do_debug) {
                 put_stabs(file->filename, N_BINCL, 0, 0, 0);
             }
@@ -2620,7 +2586,7 @@ static inline void next_nomacro1(void)
                 }
 
                 /* add end of include file debug info */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
                 if (do_debug) {
                     put_stabd(N_EINCL, 0, 0);
                 }
@@ -3397,7 +3363,7 @@ static void macro_subst(TokenString *tok_str,
 }
 
 /* return next token with macro substitution */
-static void next(void)
+void next(void)
 {
     Sym *nested_list, *s;
     TokenString str;
@@ -6561,7 +6527,7 @@ static void expr_eq(void)
     }
 }
 
-static void gexpr(void)
+void gexpr(void)
 {
     while (1) {
         expr_eq();
@@ -6649,7 +6615,7 @@ static void block(int *bsym, int *csym, int *case_sym, int *def_sym,
     Sym *s;
 
     /* generate line number info */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
     if (do_debug && 
         (last_line_num != file->line_num || last_ind != ind)) {
         put_stabn(N_SLINE, 0, file->line_num, ind - func_ind);
@@ -7820,7 +7786,7 @@ static void decl(int l)
                 func_ind = ind;
                 sym->r = VT_SYM | VT_CONST;
                 /* put debug symbol */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
                 if (do_debug)
                     put_func_debug(sym);
 #endif
@@ -7840,7 +7806,7 @@ static void decl(int l)
                 label_pop(&global_label_stack, NULL);
                 sym_pop(&local_stack, NULL); /* reset local stack */
                 /* end of function */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
                 if (do_debug) {
                     put_stabn(N_FUN, 0, 0, ind - func_ind);
                 }
@@ -7900,7 +7866,7 @@ static void decl(int l)
 
 /* better than nothing, but needs extension to handle '-E' option
    correctly too */
-static void preprocess_init(TCCState *s1)
+void preprocess_init(TCCState *s1)
 {
     s1->include_stack_ptr = s1->include_stack;
     /* XXX: move that before to avoid having to initialize
@@ -7929,7 +7895,7 @@ static int tcc_compile(TCCState *s1)
 
     /* file info: full path + filename */
     section_sym = 0; /* avoid warning */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
     if (do_debug) {
         section_sym = put_elf_sym(symtab_section, 0, 0, 
                                   ELF32_ST_INFO(STB_LOCAL, STT_SECTION), 0, 
@@ -7986,7 +7952,7 @@ static int tcc_compile(TCCState *s1)
             expect("declaration");
 
         /* end of translation unit info */
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
         if (do_debug) {
             put_stabs_r(NULL, N_SO, 0, 0, 
                         text_section->data_offset, text_section, section_sym);
@@ -8079,7 +8045,7 @@ void tcc_undefine_symbol(TCCState *s1, const char *sym)
 
 #ifndef CONFIG_TCC_ASM
 
-static void asm_instr(void)
+void asm_instr(void)
 {
     error("inline asm() not supported");
 }
@@ -8217,7 +8183,7 @@ static void rt_printline(unsigned long wanted_pc)
 #define REG_EBP EBP
 #endif
 
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
 /* return the PC at frame level 'level'. Return non zero if not found */
 static int rt_get_caller_pc(unsigned long *paddr, 
                             ucontext_t *uc, int level)
@@ -8248,13 +8214,13 @@ static int rt_get_caller_pc(unsigned long *paddr,
         return 0;
     }
 }
-#endif /* ENABLE_DEBUG */
+#endif /* CONFIG_TCC_DEBUG */
 #endif /* __i386__ */
 #else
 #error add arch specific rt_get_caller_pc()
 #endif /* WIN32 */
 
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
 /* emit a run time error at position 'pc' */
 void rt_error(ucontext_t *uc, const char *fmt, ...)
 {
@@ -8280,7 +8246,7 @@ void rt_error(ucontext_t *uc, const char *fmt, ...)
 }
 #endif
 
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
 /* signal handler for fatal errors */
 static void sig_error(int signum, siginfo_t *siginf, void *puc)
 {
@@ -8366,7 +8332,7 @@ int tcc_run(TCCState *s1, int argc, char **argv)
 
     prog_main = tcc_get_symbol(s1, "main");
     
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
     if (do_debug) {
 #ifdef WIN32
         error("debug mode currently not available for Windows");
@@ -8740,7 +8706,7 @@ int tcc_set_output_type(TCCState *s, int output_type)
     }
 #endif
 
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
     /* add debug sections */
     if (do_debug) {
         /* stab symbols */
@@ -8804,7 +8770,7 @@ void help(void)
            "  -static     static linking\n"
            "  -r          relocatable output\n"
            "Debugger options:\n"
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
            "  -g          generate runtime debug info\n"
 #endif
 #ifdef CONFIG_TCC_BCHECK
@@ -9010,7 +8976,7 @@ int main(int argc, char **argv)
                 do_debug = 1;
                 break;
 #endif
-#ifdef ENABLE_DEBUG
+#ifdef CONFIG_TCC_DEBUG
             case TCC_OPTION_g:
                 do_debug = 1;
                 break;

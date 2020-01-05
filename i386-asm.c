@@ -18,12 +18,17 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include "tcc.h"
+#include "i386-gen.h"
+#include "stddef.h"
+#include "elf.h"
+
 #define MAX_OPERANDS 3
 
 typedef struct ASMInstr {
-    uint16_t sym;
-    uint16_t opcode;
-    uint16_t instr_type;
+    short sym;
+    short opcode;
+    short instr_type;
 #define OPC_JMP       0x01  /* jmp operand */
 #define OPC_B         0x02  /* only used zith OPC_WL */
 #define OPC_WL        0x04  /* accepts w, l or no suffix */
@@ -72,8 +77,8 @@ typedef struct ASMInstr {
 /* can be ored with any OPT_xxx */
 #define OPT_EA    0x80
 
-    uint8_t nb_ops;
-    uint8_t op_type[MAX_OPERANDS]; /* see OP_xxx */
+    char nb_ops;
+    char op_type[MAX_OPERANDS]; /* see OP_xxx */
 } ASMInstr;
 
 typedef struct Operand {
@@ -102,13 +107,13 @@ typedef struct Operand {
 #define OP_EA     0x40000000
 #define OP_REG    (OP_REG8 | OP_REG16 | OP_REG32)
 #define OP_IM     OP_IM32
-    int8_t  reg; /* register, -1 if none */
-    int8_t  reg2; /* second register, -1 if none */
-    uint8_t shift;
+    char  reg; /* register, -1 if none */
+    char  reg2; /* second register, -1 if none */
+    char shift;
     ExprValue e;
 } Operand;
 
-static const uint8_t reg_to_size[5] = {
+static const char reg_to_size[5] = {
     [OP_REG8] = 0,
     [OP_REG16] = 1,
     [OP_REG32] = 2,
@@ -118,7 +123,7 @@ static const uint8_t reg_to_size[5] = {
 
 #define NB_TEST_OPCODES 30
 
-static const uint8_t test_bits[NB_TEST_OPCODES] = {
+static const char test_bits[NB_TEST_OPCODES] = {
  0x00, /* o */
  0x01, /* no */
  0x02, /* b */
@@ -151,7 +156,7 @@ static const uint8_t test_bits[NB_TEST_OPCODES] = {
  0x0f, /* g */
 };
 
-static const ASMInstr asm_instrs[] = {
+const ASMInstr asm_instrs[] = {
 #define ALT(x) x
 #define DEF_ASM_OP0(name, opcode)
 #define DEF_ASM_OP0L(name, opcode, group, instr_type) { TOK_ASM_ ## name, opcode, (instr_type | group << OPC_GROUP_SHIFT), 0 },
@@ -164,7 +169,7 @@ static const ASMInstr asm_instrs[] = {
     { 0, },
 };
 
-static const uint16_t op0_codes[] = {
+static const short op0_codes[] = {
 #define ALT(x)
 #define DEF_ASM_OP0(x, opcode) opcode,
 #define DEF_ASM_OP0L(name, opcode, group, instr_type)
@@ -280,11 +285,11 @@ static void parse_operand(TCCState *s1, Operand *op)
         op->e.v = e.v;
         op->e.sym = e.sym;
         if (!op->e.sym) {
-            if (op->e.v == (uint8_t)op->e.v)
+            if (op->e.v == (char)op->e.v)
                 op->type |= OP_IM8;
-            if (op->e.v == (int8_t)op->e.v)
+            if (op->e.v == (char)op->e.v)
                 op->type |= OP_IM8S;
-            if (op->e.v == (uint16_t)op->e.v)
+            if (op->e.v == (short)op->e.v)
                 op->type |= OP_IM16;
         }
     } else {
@@ -323,7 +328,7 @@ static void parse_operand(TCCState *s1, Operand *op)
 }
 
 /* XXX: unify with C code output ? */
-static void gen_expr32(ExprValue *pe)
+void gen_expr32(ExprValue *pe)
 {
     if (pe->sym)
         greloc(cur_text_section, pe->sym, ind, R_386_32);
@@ -355,7 +360,7 @@ static void gen_disp32(ExprValue *pe)
 }
 
 
-static void gen_le16(int v)
+void gen_le16(int v)
 {
     g(v);
     g(v >> 8);
@@ -376,7 +381,7 @@ static inline void asm_modrm(int reg, Operand *op)
         /* fist compute displacement encoding */
         if (op->e.v == 0 && !op->e.sym && op->reg != 5) {
             mod = 0x00;
-        } else if (op->e.v == (int8_t)op->e.v && !op->e.sym) {
+        } else if (op->e.v == (char)op->e.v && !op->e.sym) {
             mod = 0x40;
         } else {
             mod = 0x80;
@@ -403,7 +408,7 @@ static inline void asm_modrm(int reg, Operand *op)
     }
 }
 
-static void asm_opcode(TCCState *s1, int opcode)
+asm_opcode(TCCState *s1, int opcode)
 {
     const ASMInstr *pa;
     int i, modrm_index, reg, v, op1, is_short_jmp;
@@ -580,7 +585,7 @@ static void asm_opcode(TCCState *s1, int opcode)
         if (sym->r != cur_text_section->sh_num)
             goto no_short_jump;
         jmp_disp = ops[0].e.v + (long)sym->next - ind - 2;
-        if (jmp_disp == (int8_t)jmp_disp) {
+        if (jmp_disp == (char)jmp_disp) {
             /* OK to generate jump */
             is_short_jmp = 1;
             ops[0].e.v = jmp_disp;
@@ -742,11 +747,11 @@ static inline int constraint_priority(const char *str)
     return priority;
 }
 
-static void asm_compute_constraints(uint8_t *regs_allocated,
+void asm_compute_constraints(char *regs_allocated,
                                     ASMOperand *operands, 
                                     int nb_operands1, int nb_outputs, 
                                     int is_output,
-                                    uint8_t *input_regs_allocated)
+                                    char *input_regs_allocated)
 {
     ASMOperand *op;
     int sorted_op[MAX_ASM_OPERANDS];
@@ -917,7 +922,7 @@ static void asm_compute_constraints(uint8_t *regs_allocated,
 #endif
 }
 
-static void subst_asm_operand(CString *add_str, 
+void subst_asm_operand(CString *add_str, 
                               SValue *sv, int modifier)
 {
     int r, reg, size, val;
@@ -998,14 +1003,14 @@ static void subst_asm_operand(CString *add_str,
 }
 
 /* generate prolog and epilog code for asm statment */
-static void asm_gen_code(ASMOperand *operands, int nb_operands, 
+void asm_gen_code(ASMOperand *operands, int nb_operands, 
                          int nb_outputs, int is_output,
-                         uint8_t *clobber_regs)
+                         char *clobber_regs)
 {
-    uint8_t regs_allocated[NB_ASM_REGS];
+    char regs_allocated[NB_ASM_REGS];
     ASMOperand *op;
     int i, reg;
-    static uint8_t reg_saved[NB_SAVED_REGS] = { 3, 6, 7 };
+    static char reg_saved[NB_SAVED_REGS] = { 3, 6, 7 };
 
     /* mark all used registers */
     memcpy(regs_allocated, clobber_regs, sizeof(regs_allocated));
@@ -1056,7 +1061,7 @@ static void asm_gen_code(ASMOperand *operands, int nb_operands,
     }
 }
 
-static void asm_clobber(uint8_t *clobber_regs, const char *str)
+void asm_clobber(char *clobber_regs, const char *str)
 {
     int reg;
     TokenSym *ts;

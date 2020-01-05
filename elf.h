@@ -22,7 +22,7 @@
 #define	_ELF_H 1
 
 #ifndef WIN32
-#include <inttypes.h>
+#include "stddef.h"
 #else
 #ifndef __int8_t_defined
 #define __int8_t_defined

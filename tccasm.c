@@ -18,6 +18,13 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include "tcc.h"
+#include "i386-gen.h"
+#define NB_ASM_REGS 8
+
+#include "elf.h"
+#include "stddef.h"
+
 static int asm_get_local_label_name(TCCState *s1, unsigned int n)
 {
     char buf[64];
@@ -219,12 +226,12 @@ static inline void asm_expr_sum(TCCState *s1, ExprValue *pe)
     }
 }
 
-static void asm_expr(TCCState *s1, ExprValue *pe)
+void asm_expr(TCCState *s1, ExprValue *pe)
 {
     asm_expr_sum(s1, pe);
 }
 
-static int asm_int_expr(TCCState *s1)
+int asm_int_expr(TCCState *s1)
 {
     ExprValue e;
     asm_expr(s1, &e);
@@ -280,7 +287,7 @@ static void asm_parse_directive(TCCState *s1)
 {
     int n, offset, v, size, tok1;
     Section *sec;
-    uint8_t *ptr;
+    char *ptr;
 
     /* assembler directive */
     next();
@@ -448,7 +455,7 @@ static int tcc_assemble_internal(TCCState *s1, int do_preprocess)
 }
 
 /* Assemble the current file */
-static int tcc_assemble(TCCState *s1, int do_preprocess)
+int tcc_assemble(TCCState *s1, int do_preprocess)
 {
     int ret;
 
@@ -502,7 +509,7 @@ static void tcc_assemble_inline(TCCState *s1, char *str, int len)
 /* find a constraint by its number or id (gcc 3 extended
    syntax). return -1 if not found. Return in *pp in char after the
    constraint */
-static int find_constraint(ASMOperand *operands, int nb_operands, 
+int find_constraint(ASMOperand *operands, int nb_operands, 
                            const char *name, const char **pp)
 {
     int index;
@@ -636,14 +643,14 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr,
 }
 
 /* parse the GCC asm() instruction */
-static void asm_instr(void)
+void asm_instr(void)
 {
     CString astr, astr1;
     ASMOperand operands[MAX_ASM_OPERANDS];
     int nb_inputs, nb_outputs, nb_operands, i;
-    uint8_t input_regs_allocated[NB_ASM_REGS];
-    uint8_t output_regs_allocated[NB_ASM_REGS];
-    uint8_t clobber_regs[NB_ASM_REGS];
+    char input_regs_allocated[NB_ASM_REGS];
+    char output_regs_allocated[NB_ASM_REGS];
+    char clobber_regs[NB_ASM_REGS];
 
     next();
     /* since we always generate the asm() instruction, we can ignore

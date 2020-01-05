@@ -1,9 +1,5 @@
 #include <setjmp.h>
 
-#ifndef CONFIG_TCC_PREFIX
-#define CONFIG_TCC_PREFIX "/usr/local"
-#endif
-
 /* path to find crt1.o, crti.o and crtn.o. Only needed when generating
    executables or dlls */
 #define CONFIG_TCC_CRT_PREFIX "/usr/lib"
@@ -262,7 +258,7 @@ static unsigned char isidnum_table[256];
 static struct TCCState *tcc_state;
 
 /* give the path of the tcc libraries */
-static const char *tcc_lib_path = CONFIG_TCC_PREFIX "/lib/tcc";
+static const char *tcc_lib_path = CONFIG_TCC_LIBDIR "/tcc";
 
 typedef struct TCCState {
     int output_type;
@@ -517,6 +513,32 @@ enum {
 #undef DEF
 };
 
+/* tccasm.c */
+
+#ifdef CONFIG_TCC_ASM
+
+typedef struct ExprValue {
+    int v;
+    Sym *sym;
+} ExprValue;
+
+#define MAX_ASM_OPERANDS 30
+
+typedef struct ASMOperand {
+    int id; /* GCC 3 optionnal identifier (0 if number only supported */
+    char *constraint;
+    char asm_str[16]; /* computed asm string for operand */
+    SValue *vt; /* C value of the expression */
+    int ref_index; /* if >= 0, gives reference to a output constraint */
+    int priority; /* priority, used to assign registers */
+    int reg; /* if >= 0, register number used for this operand */
+} ASMOperand;
+
+#endif
+
+char *pstrcpy(char *buf, int buf_size, const char *s);
+
+void gexpr(void);
 void minp(void);
 char *parse_comment(char *p);
 int gv(int rc);
@@ -530,6 +552,15 @@ void vdup(void);
 int get_reg(int rc);
 int handle_eob(void);
 
+void next(void);
+Sym *label_push(Sym **ptop, int v, int flags);
+Sym *label_find(int v);
+TokenSym *tok_alloc(const char *str, int len);
+void cstr_ccat(CString *cstr, int ch);
+void cstr_cat(CString *cstr, const char *str);
+void cstr_free(CString *cstr);
+void cstr_new(CString *cstr);
+void gexpr(void);
 int save_reg_forced(int r);
 void gen_op(int op);
 void force_charshort_cast(int t);
@@ -553,6 +584,8 @@ void greloc(Section *s, Sym *sym, unsigned long addr, int type);
 int tcc_add_dll(TCCState *s, const char *filename, int flags);
 Sym *external_sym(int v, CType *type, int r);
 Sym *external_global_sym(int v, CType *type, int r);
+
+void asm_instr(void);
 
 #define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
 #define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
