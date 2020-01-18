@@ -20,7 +20,7 @@
 
 #include "tcc.h"
 #include "i386-gen.h"
-#include "tcclibc.h" 
+#include "elf.h"
 
 static unsigned long func_sub_sp_offset;
 static unsigned long func_bound_offset;

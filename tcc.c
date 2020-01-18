@@ -21,9 +21,10 @@
 #include "tcc.h"
 #include "i386-gen.h"
 #include "tccelf.h"
-#ifdef __TINYC__
-#include "tcclibc.h"
-#else
+#include "elf.h"
+#include "stab.h"
+#include "libtcc.h"
+
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -41,22 +42,15 @@
 #include <windows.h>
 #else
 #include <sys/time.h>
-#endif /* WIN32 */
 #include <sys/mman.h>
 #ifdef CONFIG_TCC_DEBUG
 #include <sys/ucontext.h>
 #endif /* CONFIG_TCC_DEBUG */
-
-#include "elf.h"
-#include "stab.h"
-#endif /* __TINYC__ */
+#endif /* WIN32 */
 
 #ifndef PAGESIZE
 #define PAGESIZE 4096
 #endif
-
-
-#include "libtcc.h"
 
 /* parser debug */
 //#define PARSE_DEBUG
