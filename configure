@@ -16,13 +16,39 @@ run $0 again.
 
 Defaults for the options are specified in brackets.
 
+Installation and Host directories are used for building, not after.
+Target directories are build into the binary.
+
+Configuration:
+  --srcdir=DIR            source directory [detected]
+  --prefix=PREFIX         main installation prefix [/usr/local/tcc]
+
+Installation directories:
+  --inst-bindir=DIR       where to install the TCC binary [PREFIX/bin]
+  --inst-libdir=DIR       where to install TCC library files
+                          [PREFIX/lib]
+  --inst-includedir=DIR   where to install TCC library headers
+                          [PREFIX/include]
+
 System types:
-  --build=BUILD           indicate CPU architecture of machine building
-                          TCC [detected]
-  --host=HOST             configure TCC to run on HOST CPU architecture
-                          [BUILD]
-  --target=TARGET         configure TCC to produce binaries that run on
-                          TARGET CPU architecture [HOST]
+  --build=BUILD           indicate CPU architecture of machine 
+                          building TCC [detected]
+  --host=HOST             configure TCC to run on HOST CPU 
+                          architecture [BUILD]
+  --target=TARGET         configure TCC to produce binaries that run
+                          on TARGET CPU architecture [HOST]
+
+Host directories:
+  --host-includedir=DIR   The location of include files for the HOST
+                          architecture [detected]
+  --host-libdir=DIR       The location of library files for the HOST
+                          architecture [detected]
+
+Target directories:
+  --target-includedir=DIR The location of include files for the TARGET
+                          architecture [/usr/include]
+  --target-libdir=DIR     The location of library files for the TARGET
+                          architecture [/usr/lib]
 
 Optional features:
   --enable-asm            compile TCC with assembly support [enabled]
@@ -52,25 +78,44 @@ echo () { printf "%s\n" "$*" ; }
 cmdexists () { type "$1" >/dev/null 2>&1 ; }
 trycc () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
 
+
 # Beginning of actual script
 
 version=$(cat VERSION)
 obj_files="libtcc-rt.o tcc.o tccelf.o"
+cpp_defs="-DTCC_VERSION='\"${version}\"'"
+
+src_dir=
+prefix="/usr/local/tcc"
+inst_bindir=
+inst_libdir=
+inst_includedir=
 build_arch=
 host_arch=
 target_arch=
+host_libdir=
+host_includedir=
 target_libdir="/usr/lib"
+target_includedir="/usr/include"
 static='-static -DCONFIG_TCC_STATIC'
 boundry=
 with_asm='-DCONFIG_TCC_ASM'
-cpp_defs="-DTCC_VERSION='\"${version}\"'"
 
 for arg ; do
 case "$arg" in
 --help|-h) usage ;;
+--srcdir=*) srcdir=${arg#*=} ;;
+--prefix=*) prefix=${arg#*=} ;;
+--inst-bindir=*) inst_bindir=${arg#*=} ;;
+--inst-libdir=*) inst_libdir=${arg#*=} ;;
+--inst-includedir=*) inst_includedir=${arg#*=} ;;
 --build=*) build_arch=${arg#*=} ;;
 --host=*) host_arch=${arg#*=} ;;
 --target=*) target_arch=${arg#*=} ;;
+--host-libdir=*) host_libdir=${arg#*=} ;;
+--host-includedir=*) host_includedir=${arg#*=} ;;
+--target-libdir=*) target_libdir=${arg#*=} ;;
+--target-includedir=*) target_includedir=${arg#*=} ;;
 --enable-asm|--enable-asm=yes) with_asm='-DCONFIG_TCC_ASM' ;;
 --disable-asm|--enable-asm=no) with_asm= ;;
 --enable-debug|--enable-debug=yes) cpp_defs="$cpp_defs -DCONFIG_TCC_DEBUG";;
@@ -82,9 +127,19 @@ case "$arg" in
 -* ) echo "$0: unknown option $arg" ;;
 CC=*) CC=${arg#*=} ;;
 CFLAGS=*) CFLAGS=${arg#*=} ;;
-CROSS_COMPILE=*) CROSS_COMPILE=${arg#*=} ;;
 esac
 done
+
+#
+# Get the source dir for out-of-tree builds
+#
+if test -z "$srcdir" ; then
+srcdir="${0%configure}"
+fi
+
+test -n "$inst_bindir" || inst_bindir="${prefix}/bin";
+test -n "$inst_libdir" || inst_libdir="${prefix}/lib";
+test -n "$inst_includedir" || inst_includedir="${prefix}/include";
 
 #
 # Configure architectures
@@ -134,6 +189,7 @@ fi
 
 # Update target directories
 cpp_defs="$cpp_defs -DCONFIG_TCC_LIBDIR='\"${target_libdir}\"'"
+cpp_defs="$cpp_defs -DCONFIG_TCC_INCLUDEDIR='\"${target_includedir}\"'"
 
 
 #
@@ -153,21 +209,51 @@ cflags=$CFLAGS
 static=$static
 defs=$cpp_defs
 
+EOF
+
+if test -n "$host_includedir" ; then
+cat >> build.ninja << EOF
+hinc=-nostdinc -I$host_includedir
+EOF
+fi
+
+if test -n "$host_libdir" ; then
+cat >> build.ninja << EOF
+hlib=-nostdlib -L$host_libdir
+EOF
+fi
+
+cat >> build.ninja << EOF
+
+inst_bindir=$inst_bindir
+inst_libdir=$inst_libdir
+
 rule obj-compile
-  command = \$cc \$static \$cflags -I. -c \$defs -o \$out \$in
+  command = \$cc \$hinc \$static \$cflags -I. -c \$defs -o \$out \$in
 
 rule link
-  command = \$cc \$static \$cflags -o \$out \$in
+  command = \$cc \$hlib \$static \$cflags -o \$out \$in
+
+rule install
+  command = cp \$in \$out
 
 EOF
 
 for file in $obj_files; do cat >> build.ninja << EOF
-build $file: obj-compile ${file%o}c
+build $file: obj-compile ${srcdir}${file%o}c
 
 EOF
 done
 
 cat >> build.ninja << EOF
 build tcc: link ${obj_files#libtcc-rt.o }
+
+build \$inst_bindir/tcc: install tcc
+
+build \$inst_libdir/tcc/libtcc-rt.o: install libtcc-rt.o
+
+build install: phony \$inst_libdir/tcc/libtcc-rt.o \$inst_bindir/tcc
+
+default tcc libtcc-rt.o
 EOF
 exit 0
