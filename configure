@@ -82,7 +82,7 @@ trycc () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
 # Beginning of actual script
 
 version=$(cat VERSION)
-obj_files="libtcc-rt.o tcc.o tccelf.o"
+obj_files="libtcc-rt.o tcc.o tccelf.o tccgen.o tccpp.o"
 cpp_defs="-DTCC_VERSION='\"${version}\"'"
 
 src_dir=
