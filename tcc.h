@@ -8,7 +8,7 @@
 
 /* path to find crt1.o, crti.o and crtn.o. Only needed when generating
    executables or dlls */
-#define CONFIG_TCC_CRT_PREFIX "/usr/lib"
+#define CONFIG_TCC_CRT_PREFIX CONFIG_SYSROOT "/usr/lib"
 
 #define INCLUDE_STACK_SIZE  32
 #define IFDEF_STACK_SIZE    64
@@ -306,7 +306,7 @@ static int verbose = 0;
 static struct TCCState *tcc_state;
 
 /* give the path of the tcc libraries */
-static const char *tcc_lib_path = CONFIG_TCC_LIBDIR "/tcc";
+static const char *tcc_lib_path = CONFIG_SYSROOT "/lib/tcc";
 
 typedef struct TCCState {
     int output_type;

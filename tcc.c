@@ -9364,9 +9364,9 @@ TCCState *tcc_new(void)
     
 #ifndef TCC_TARGET_PE
     /* default library paths */
-    tcc_add_library_path(s, "/usr/local/lib");
-    tcc_add_library_path(s, "/usr/lib");
-    tcc_add_library_path(s, "/lib");
+    tcc_add_library_path(s, CONFIG_SYSROOT "/usr/local/lib");
+    tcc_add_library_path(s, CONFIG_SYSROOT "/usr/lib");
+    tcc_add_library_path(s, CONFIG_SYSROOT "/lib");
 #endif
 
     /* no section zero */
@@ -9643,8 +9643,8 @@ int tcc_set_output_type(TCCState *s, int output_type)
         /* default include paths */
         /* XXX: reverse order needed if -isystem support */
 #ifndef TCC_TARGET_PE
-        tcc_add_sysinclude_path(s, "/usr/local/include");
-        tcc_add_sysinclude_path(s, "/usr/include");
+        tcc_add_sysinclude_path(s, CONFIG_SYSROOT "/usr/local/include");
+        tcc_add_sysinclude_path(s, CONFIG_SYSROOT "/usr/include");
 #endif
         snprintf(buf, sizeof(buf), "%s/include", tcc_lib_path);
         tcc_add_sysinclude_path(s, buf);

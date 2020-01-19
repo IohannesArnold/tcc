@@ -17,7 +17,9 @@ run $0 again.
 Defaults for the options are specified in brackets.
 
 Installation and Host directories are used for building, not after.
-Target directories are build into the binary.
+Target directories are built into the binary. If you are planning on
+changing the layout of the filesystem changing after installation,
+plan accordingly.
 
 Configuration:
   --srcdir=DIR            source directory [detected]
@@ -45,10 +47,8 @@ Host directories:
                           architecture [detected]
 
 Target directories:
-  --target-includedir=DIR The location of include files for the TARGET
-                          architecture [/usr/include]
-  --target-libdir=DIR     The location of library files for the TARGET
-                          architecture [/usr/lib]
+  --target-sysroot=DIR    The default root of the TARGET system to look
+                          for libraries and include files [/]
 
 Optional features:
   --enable-asm            compile TCC with assembly support [enabled]
@@ -95,8 +95,7 @@ host_arch=
 target_arch=
 host_libdir=
 host_includedir=
-target_libdir="/usr/lib"
-target_includedir="/usr/include"
+target_sysroot=
 static='-static -DCONFIG_TCC_STATIC'
 boundry=
 with_asm='-DCONFIG_TCC_ASM'
@@ -114,8 +113,7 @@ case "$arg" in
 --target=*) target_arch=${arg#*=} ;;
 --host-libdir=*) host_libdir=${arg#*=} ;;
 --host-includedir=*) host_includedir=${arg#*=} ;;
---target-libdir=*) target_libdir=${arg#*=} ;;
---target-includedir=*) target_includedir=${arg#*=} ;;
+--target-sysroot=*) target_sysroot=${arg#*=} ;;
 --enable-asm|--enable-asm=yes) with_asm='-DCONFIG_TCC_ASM' ;;
 --disable-asm|--enable-asm=no) with_asm= ;;
 --enable-debug|--enable-debug=yes) cpp_defs="$cpp_defs -DCONFIG_TCC_DEBUG";;
@@ -158,6 +156,7 @@ case "$target_arch" in
 cil*) target_arch=il cpp_defs="$cpp_defs -DTCC_TARGET_IL";;
 il*) target_arch=il cpp_defs="$cpp_defs -DTCC_TARGET_IL";;
 i?86*) target_arch=i386 cpp_defs="$cpp_defs -DTCC_TARGET_I386";;
+arm*) target_arch=arm with_asm= cpp_defs="$cpp_defs -DTCC_TARGET_ARM";;
 *) printf "\nunknown or unsupported target \"$target_arch\"\n" && exit 1;;
 esac
 printf "%s\n" "$target_arch"
@@ -188,8 +187,7 @@ cpp_defs="$cpp_defs -DCONFIG_TCC_BCHECK"
 fi 
 
 # Update target directories
-cpp_defs="$cpp_defs -DCONFIG_TCC_LIBDIR='\"${target_libdir}\"'"
-cpp_defs="$cpp_defs -DCONFIG_TCC_INCLUDEDIR='\"${target_includedir}\"'"
+cpp_defs="$cpp_defs -DCONFIG_SYSROOT='\"${target_sysroot}\"'"
 
 
 #
