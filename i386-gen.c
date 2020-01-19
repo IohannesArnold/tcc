@@ -22,6 +22,13 @@
 #include "i386-gen.h"
 #include "elf.h"
 
+static int reg_classes[NB_REGS] = {
+    /* eax */ RC_INT | RC_EAX,
+    /* ecx */ RC_INT | RC_ECX,
+    /* edx */ RC_INT | RC_EDX,
+    /* st0 */ RC_FLOAT | RC_ST0,
+};
+
 static unsigned long func_sub_sp_offset;
 static unsigned long func_bound_offset;
 static int func_ret_sub;

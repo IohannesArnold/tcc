@@ -19,7 +19,6 @@
  */
 
 #include "tcc.h"
-#include "i386-gen.h"
 #include "tccelf.h"
 #include "elf.h"
 #include "stab.h"
@@ -41,12 +40,19 @@
 #include <sys/timeb.h>
 #include <windows.h>
 #else
+#include <dlfcn.h> 
 #include <sys/time.h>
 #include <sys/mman.h>
 #ifdef CONFIG_TCC_DEBUG
 #include <sys/ucontext.h>
 #endif /* CONFIG_TCC_DEBUG */
 #endif /* WIN32 */
+
+#ifdef __i386__
+#include "i386-gen.h"
+#elif defined(__x86_64__)
+#include "x86_64-gen.h"
+#endif
 
 #ifndef PAGESIZE
 #define PAGESIZE 4096
@@ -85,13 +91,6 @@ static int tcc_ext = 1;
 /* max number of callers shown if error */
 static int num_callers = 6;
 static const char **rt_bound_error_msg;
-
-int reg_classes[NB_REGS] = {
-    /* eax */ RC_INT | RC_EAX,
-    /* ecx */ RC_INT | RC_ECX,
-    /* edx */ RC_INT | RC_EDX,
-    /* st0 */ RC_FLOAT | RC_ST0,
-};
 
 static const char tcc_keywords[] = 
 #define DEF(id, str) str "\0"

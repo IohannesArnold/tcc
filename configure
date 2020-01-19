@@ -157,6 +157,7 @@ cil*) target_arch=il cpp_defs="$cpp_defs -DTCC_TARGET_IL";;
 il*) target_arch=il cpp_defs="$cpp_defs -DTCC_TARGET_IL";;
 i?86*) target_arch=i386 cpp_defs="$cpp_defs -DTCC_TARGET_I386";;
 arm*) target_arch=arm with_asm= cpp_defs="$cpp_defs -DTCC_TARGET_ARM";;
+x86_64*) target_arch=x86_64 with_asm= cpp_defs="$cpp_defs -DTCC_TARGET_X86_64";;
 *) printf "\nunknown or unsupported target \"$target_arch\"\n" && exit 1;;
 esac
 printf "%s\n" "$target_arch"
@@ -230,7 +231,7 @@ rule obj-compile
   command = \$cc \$hinc \$static \$cflags -I. -c \$defs -o \$out \$in
 
 rule link
-  command = \$cc \$hlib \$static \$cflags -o \$out \$in
+  command = \$cc \$hlib \$static \$cflags -o \$out \$in -ldl
 
 rule install
   command = cp \$in \$out

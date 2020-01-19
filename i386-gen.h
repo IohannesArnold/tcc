@@ -17,6 +17,8 @@
 #define RC_LRET    RC_EDX /* function return: second integer register */
 #define RC_FRET    RC_ST0 /* function return: float register */
 
+static int reg_classes[NB_REGS];
+
 /* pretty names for the registers */
 enum {
     TREG_EAX = 0,
